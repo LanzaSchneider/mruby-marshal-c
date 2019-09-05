@@ -1,4 +1,4 @@
-MRuby::Gem::Specification.new('lanlv-marshal') do |spec|
+MRuby::Gem::Specification.new('mruby-marshal-c') do |spec|
 	spec.license = 'Public domain'
 	spec.authors = 'Lanza Schneider'
 end
