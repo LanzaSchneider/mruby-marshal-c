@@ -706,7 +706,7 @@ static mrb_value marshal_dump(mrb_state* mrb, mrb_value self) {
 	return mrb_nil_value();
 }
 
-void mrb_lanlv_marshal_gem_init(mrb_state* mrb) {
+void mrb_mruby_marshal_c_gem_init(mrb_state* mrb) {
 	struct RClass* marshal_module = mrb_define_module(mrb, "Marshal");
 
 	mrb_define_module_function(mrb, marshal_module, "load",		marshal_load,	MRB_ARGS_ANY());
@@ -717,4 +717,4 @@ void mrb_lanlv_marshal_gem_init(mrb_state* mrb) {
 	mrb_define_const(mrb, marshal_module, "MINOR_VERSION", mrb_fixnum_value(MINOR_VERSION));
 }
 
-void mrb_lanlv_marshal_gem_final(mrb_state* mrb) {}
+void mrb_mruby_marshal_c_gem_final(mrb_state* mrb) {}
