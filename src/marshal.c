@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 
 #define MAJOR_VERSION 4
 #define MINOR_VERSION 8
@@ -33,8 +34,8 @@ static unsigned marshal_loadfunc_for_string(mrb_state* mrb, struct marshal_loade
 		result_len = RSTRING_LEN(loader->source) - loader->source_pos;
 	}
 	if ( result_len ) {
-		loader->source_pos += result_len;
 		memcpy(dest, RSTRING_PTR(loader->source) + loader->source_pos, result_len);
+		loader->source_pos += result_len;
 	}
 	return result_len;
 }
@@ -160,7 +161,21 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 	case 'T': return mrb_true_value();
 	case 'F': return mrb_false_value();
 	case 'i': return mrb_fixnum_value(marshal_loader_fixnum(mrb, loader));
-	case 'l': break; // TODO: Bignum
+	case 'l': // break; // TODO: Bignum
+	{
+		mrb_value value;
+		mrb_float floatia = 0; 
+		int8_t sign = (int8_t)marshal_loader_byte(mrb, loader);
+		mrb_int len = marshal_loader_fixnum(mrb, loader);
+		unsigned exp = 0;
+		for ( ; exp < len * 2; exp++ ) {
+			floatia += pow(marshal_loader_byte(mrb, loader) * 2, exp * 8);
+		}
+		floatia *= sign;
+		value = mrb_float_value(mrb, floatia);
+		marshal_loader_register_link(mrb, loader, &value);
+		return value;
+	}
 	case ':': {
 		mrb_value symbol = mrb_symbol_value(mrb_intern_str(mrb, marshal_loader_string(mrb, loader)));
 		mrb_ary_push(mrb, loader->linked_symbols, symbol);
@@ -605,12 +620,12 @@ static void marshal_dumper_marshal(mrb_state* mrb, struct marshal_dumper* dumper
 			}
 		} return;
 		case MRB_TT_CLASS: {
-			mrb_value path = mrb_class_path(mrb, cls);
+			mrb_value path = mrb_class_path(mrb, mrb_class_ptr(*obj));
 			marshal_dumper_byte(mrb, dumper, 'c');
 			marshal_dumper_string(mrb, dumper, &path);
 		} return;
 		case MRB_TT_MODULE: {
-			mrb_value path = mrb_class_path(mrb, cls);
+			mrb_value path = mrb_class_path(mrb, mrb_class_ptr(*obj));
 			marshal_dumper_byte(mrb, dumper, 'm');
 			marshal_dumper_string(mrb, dumper, &path);
 		} return;
