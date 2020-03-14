@@ -12,6 +12,12 @@
 #include <string.h>
 #include <math.h>
 
+#if (MRUBY_RELEASE_MAJOR >= 2) && (MRUBY_RELEASE_MINOR >= 1)
+	#define mrb_sym2name mrb_sym_name
+	#define mrb_sym2name_len mrb_sym_name_len
+	#define mrb_sym2str mrb_sym_str
+#endif
+
 #define MAJOR_VERSION 4
 #define MINOR_VERSION 8
 
