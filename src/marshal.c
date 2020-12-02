@@ -265,7 +265,10 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		if (member_count != RARRAY_LEN(struct_symbols)) {
 			mrb_raisef(mrb, E_TYPE_ERROR, "struct %S not compatible (struct size differs)", mrb_symbol_value(path_symbol));
 		}
-
+		
+		mrb_value object = mrb_obj_new(mrb, cls, 0, NULL);
+		marshal_loader_register_link(mrb, loader, &object);
+		
 		mrb_value symbols = mrb_ary_new_capa(mrb, member_count);
 		mrb_value values = mrb_ary_new_capa(mrb, member_count);
 
@@ -279,13 +282,14 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		for (i = 0; i < member_count; ++i) {
 			mrb_value src_sym = mrb_ary_ref(mrb, symbols, i);
 			mrb_value dst_sym = mrb_ary_ref(mrb, struct_symbols, i);
-			if (! mrb_obj_eq(mrb, src_sym, dst_sym)) {
+			if (!mrb_obj_eq(mrb, src_sym, dst_sym)) {
 				mrb_raisef(mrb, E_TYPE_ERROR, "struct %S not compatible (:%S for :%S)", mrb_symbol_value(path_symbol), src_sym, dst_sym);
 			}
 		}
 		
-		mrb_value object = mrb_funcall_argv(mrb, mrb_obj_value(cls), mrb_intern_lit(mrb, "new"), member_count, RARRAY_PTR(values));
-		marshal_loader_register_link(mrb, loader, &object);
+		for (i = 0; i < member_count; ++i) {
+			RARRAY_PTR(object)[i] = RARRAY_PTR(values)[i];
+		}
 		return object;
 	}
 	case '/': {
