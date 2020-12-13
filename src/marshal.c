@@ -288,7 +288,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		}
 		
 		for (i = 0; i < member_count; ++i) {
-			RARRAY_PTR(object)[i] = RARRAY_PTR(values)[i];
+			mrb_ary_set( mrb, object, i, RARRAY_PTR(values)[i] );
 		}
 		return object;
 	}
