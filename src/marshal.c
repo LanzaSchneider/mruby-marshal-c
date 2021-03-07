@@ -160,8 +160,10 @@ static mrb_sym marshal_loader_symbol(mrb_state* mrb, struct marshal_loader* load
 	return mrb_symbol(symbol);
 }
 
+#define DONE mrb_gc_arena_restore( mrb, ai )
 static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* loader) {
 	char type = (char)marshal_loader_byte(mrb, loader);
+	int ai = mrb_gc_arena_save( mrb );
 	switch ( type ) {
 	case '0': return mrb_nil_value();
 	case 'T': return mrb_true_value();
@@ -180,31 +182,31 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		floatia *= sign;
 		value = mrb_float_value(mrb, floatia);
 		marshal_loader_register_link(mrb, loader, &value);
-		return value;
+		DONE; return value;
 	}
 	case ':': {
 		mrb_value symbol = mrb_symbol_value(mrb_intern_str(mrb, marshal_loader_string(mrb, loader)));
 		mrb_ary_push(mrb, loader->linked_symbols, symbol);
-		return symbol;
+		DONE; return symbol;
 	}
 	case '"': {
 		mrb_value string = marshal_loader_string(mrb, loader);
 		marshal_loader_register_link(mrb, loader, &string);
-		return string;
+		DONE; return string;
 	}
 	case 'I': {
 		mrb_value object = marshal_loader_marshal(mrb, loader);
 		mrb_int iv_len = marshal_loader_fixnum(mrb, loader);
 		mrb_int i = 0;
-		int ai = mrb_gc_arena_save( mrb );
+		// int ai = mrb_gc_arena_save( mrb );
 		for ( ; i < iv_len; i++ ) {
 			mrb_sym symbol = marshal_loader_symbol(mrb, loader);
 			mrb_value value = marshal_loader_marshal(mrb, loader);
 			if (!strcmp("E", mrb_sym2name(mrb, symbol))) continue;
 			mrb_iv_set(mrb, object, symbol, value);
-			mrb_gc_arena_restore( mrb, ai );
+			// mrb_gc_arena_restore( mrb, ai );
 		}
-		return object;
+		DONE; return object;
 	}
 	case '[': {
 		mrb_value array = mrb_ary_new(mrb);
@@ -212,12 +214,12 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_int i = 0;
 		int ai;
 		marshal_loader_register_link(mrb, loader, &array);
-		ai = mrb_gc_arena_save( mrb );
+		// ai = mrb_gc_arena_save( mrb );
 		for ( ; i < len; i++ ) {
 			mrb_ary_push(mrb, array, marshal_loader_marshal(mrb, loader));
-			mrb_gc_arena_restore( mrb, ai );
+			// mrb_gc_arena_restore( mrb, ai );
 		}
-		return array;
+		DONE; return array;
 	}
 	case '{': {
 		mrb_value hash = mrb_hash_new(mrb);
@@ -225,14 +227,14 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_int i = 0;
 		int ai;
 		marshal_loader_register_link(mrb, loader, &hash);
-		ai = mrb_gc_arena_save( mrb );
+		// ai = mrb_gc_arena_save( mrb );
 		for ( ; i < len; i++ ) {
 			mrb_value key = marshal_loader_marshal(mrb, loader);
 			mrb_value value = marshal_loader_marshal(mrb, loader);
 			mrb_hash_set(mrb, hash, key, value);
-			mrb_gc_arena_restore( mrb, ai );
+			// mrb_gc_arena_restore( mrb, ai );
 		}
-		return hash;
+		DONE; return hash;
 	}
 	case 'f': {
 		mrb_value string = marshal_loader_string(mrb, loader);
@@ -251,7 +253,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		}
 		value = mrb_float_value(mrb, floatia);
 		marshal_loader_register_link(mrb, loader, &value);
-		return value;
+		DONE; return value;
 	}
 	case 'c': 
 	case 'm': {
@@ -259,7 +261,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		struct RClass* cls = marshal_loader_path2cls(mrb, RSTRING_PTR(path), RSTRING_LEN(path));
 		mrb_value value = mrb_obj_value(cls);
 		marshal_loader_register_link(mrb, loader, &value);
-		return value;
+		DONE; return value;
 	}
 	case 'S': {
 		mrb_sym path_symbol = marshal_loader_symbol(mrb, loader);
@@ -280,14 +282,14 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_value symbols = mrb_ary_new_capa(mrb, member_count);
 		mrb_value values = mrb_ary_new_capa(mrb, member_count);
 
-		int ai = mrb_gc_arena_save( mrb );
+		// int ai = mrb_gc_arena_save( mrb );
 		
 		mrb_int i;
 		
 		for (i = 0; i < member_count; ++i) {
 			mrb_ary_push(mrb, symbols, mrb_symbol_value(marshal_loader_symbol(mrb, loader)));
 			mrb_ary_push(mrb, values, marshal_loader_marshal(mrb, loader));
-			mrb_gc_arena_restore( mrb, ai );
+			// mrb_gc_arena_restore( mrb, ai );
 		}
 
 		for (i = 0; i < member_count; ++i) {
@@ -301,12 +303,12 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		for (i = 0; i < member_count; ++i) {
 			mrb_ary_set( mrb, object, i, RARRAY_PTR(values)[i] );
 		}
-		return object;
+		DONE; return object;
 	}
 	case '/': {
 		mrb_value regexp = mrb_funcall(mrb, mrb_obj_value(mrb_class_get(mrb, "Regexp")), "new", 2, marshal_loader_string(mrb, loader), marshal_loader_fixnum(mrb, loader));
 		marshal_loader_register_link(mrb, loader, &regexp);
-		return regexp;
+		DONE; return regexp;
 	}
 	case 'o': {
 		mrb_int path_len = 0;
@@ -318,14 +320,14 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		marshal_loader_register_link(mrb, loader, &object);
 		mrb_int iv_len = marshal_loader_fixnum(mrb, loader);
 		mrb_int i = 0;
-		int ai = mrb_gc_arena_save( mrb );
+		// int ai = mrb_gc_arena_save( mrb );
 		for ( ; i < iv_len; i++ ) {
 			mrb_sym symbol = marshal_loader_symbol(mrb, loader);
 			mrb_value value = marshal_loader_marshal(mrb, loader);
 			mrb_iv_set(mrb, object, symbol, value);
-			mrb_gc_arena_restore( mrb, ai );
+			// mrb_gc_arena_restore( mrb, ai );
 		}
-		return object;
+		DONE; return object;
 	}
 	case 'C': {
 		mrb_int path_len = 0;
@@ -333,7 +335,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		struct RClass* cls = marshal_loader_path2cls(mrb, path, path_len);
 		mrb_value object = marshal_loader_marshal(mrb, loader);
 		mrb_basic_ptr(object)->c = cls;
-		return object;
+		DONE; return object;
 	}
 	case 'u': {
 		mrb_int path_len = 0;
@@ -341,7 +343,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		struct RClass* cls = marshal_loader_path2cls(mrb, path, path_len);
 		mrb_value object = mrb_funcall(mrb, mrb_obj_value(cls), "_load", 1, marshal_loader_string(mrb, loader));
 		marshal_loader_register_link(mrb, loader, &object);
-		return object;
+		DONE; return object;
 	}
 	case 'U': {
 		mrb_int path_len = 0;
@@ -352,7 +354,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_value object = mrb_obj_value(mrb_obj_alloc(mrb, ttype, cls));
 		mrb_funcall(mrb, object, "marshal_load", 1, marshal_loader_marshal(mrb, loader));
 		marshal_loader_register_link(mrb, loader, &object);
-		return object;
+		DONE; return object;
 	}
 	case 'd': {
 		mrb_int path_len = 0;
@@ -363,7 +365,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_value object = mrb_obj_value(mrb_obj_alloc(mrb, ttype, cls));
 		marshal_loader_register_link(mrb, loader, &object);
 		mrb_funcall(mrb, object, "_load_data", 1, marshal_loader_marshal(mrb, loader));
-		return object;
+		DONE; return object;
 	}
 	case 'e': {
 		mrb_int path_len = 0;
@@ -371,7 +373,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		struct RClass* mod = marshal_loader_path2cls(mrb, path, path_len);
 		mrb_value object = marshal_loader_marshal(mrb, loader);
 		mrb_funcall(mrb, object, "extend", 1, mrb_obj_value(mod));
-		return object;
+		DONE; return object;
 	}
 	case ';': {
 		mrb_int const id = marshal_loader_fixnum(mrb, loader);
@@ -380,7 +382,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 			sprintf(buffer, "Invalid link id[%d] - Symbols size:%d", id, RARRAY_LEN(loader->linked_symbols));
 			mrb_raise(mrb, E_INDEX_ERROR, buffer);
 		}
-		return RARRAY_PTR(loader->linked_symbols)[id];
+		DONE; return RARRAY_PTR(loader->linked_symbols)[id];
 	}
 	case '@': {
 		mrb_int const id = marshal_loader_fixnum(mrb, loader);
@@ -389,7 +391,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 			sprintf(buffer, "Invalid link id[%d] - Objects size:%d", id, RARRAY_LEN(loader->linked_objects));
 			mrb_raise(mrb, E_INDEX_ERROR, buffer);
 		}
-		return RARRAY_PTR(loader->linked_objects)[id];
+		DONE; return RARRAY_PTR(loader->linked_objects)[id];
 	}
 	}
 	{
@@ -399,7 +401,7 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 	}
 	return mrb_nil_value();
 }
-
+#undef DONE
 static mrb_value marshal_load(mrb_state* mrb, mrb_value self) {
 	mrb_int argc = 0;
 	mrb_value* args = NULL;
@@ -445,7 +447,11 @@ static unsigned marshal_dumpfunc_for_string(mrb_state* mrb, struct marshal_dumpe
 }
 
 static unsigned marshal_dumpfunc_for_writer(mrb_state* mrb, struct marshal_dumper* dumper, unsigned size, void* source) {
-	mrb_value write_len = mrb_funcall(mrb, dumper->dest, "write", 1, mrb_str_new(mrb, source, size));
+	mrb_value buf;
+	int ai = mrb_gc_arena_save( mrb );
+	buf = mrb_str_new(mrb, source, size);
+	mrb_gc_arena_restore( mrb, ai );
+	mrb_value write_len = mrb_funcall(mrb, dumper->dest, "write", 1, buf);
 	if ( mrb_fixnum_p(write_len) ) {
 		dumper->dest_pos += mrb_fixnum(write_len);
 		return mrb_fixnum(write_len);
@@ -556,29 +562,31 @@ static void marshal_dumper_class(mrb_state* mrb, struct marshal_dumper* dumper, 
 
 static struct RClass* regexp_class = NULL;
 
+#define DONE mrb_gc_arena_restore( mrb, ai )
 static void marshal_dumper_marshal(mrb_state* mrb, struct marshal_dumper* dumper, mrb_value* obj, mrb_int limit) {
+	int ai = mrb_gc_arena_save( mrb );
 	if (limit <= 0) mrb_raise(mrb, E_RUNTIME_ERROR, "exceed depth limit");
 	limit -= 1;
 	// Nil
 	if ( mrb_nil_p(*obj) ) {
 		marshal_dumper_byte(mrb, dumper, '0');
-		return;
+		DONE; return;
 	}
 	// Basic type
 	switch( mrb_type(*obj) ) {
 	case MRB_TT_FALSE:
 		marshal_dumper_byte(mrb, dumper, 'F');
-		return;
+		DONE; return;
 	case MRB_TT_TRUE:
 		marshal_dumper_byte(mrb, dumper, 'T');
-		return;
+		DONE; return;
 	case MRB_TT_FIXNUM: 
 		marshal_dumper_byte(mrb, dumper, 'i');
 		marshal_dumper_fixnum(mrb, dumper, mrb_fixnum(*obj));
-		return;
+		DONE; return;
 	case MRB_TT_SYMBOL:
 		marshal_dumper_symbol(mrb, dumper, mrb_symbol(*obj));
-		return;
+		DONE; return;
 	default: break;
 	}
 	// Checking linked object
@@ -590,7 +598,7 @@ static void marshal_dumper_marshal(mrb_state* mrb, struct marshal_dumper* dumper
 		if (l != e) {
 			marshal_dumper_byte(mrb, dumper, '@');
 			marshal_dumper_fixnum(mrb, dumper, l - b);
-			return;
+			DONE; return;
 		}
 	}
 	// Link object
@@ -600,14 +608,14 @@ static void marshal_dumper_marshal(mrb_state* mrb, struct marshal_dumper* dumper
 		marshal_dumper_class(mrb, dumper, obj, 'U', 0);
 		mrb_value object = mrb_funcall(mrb, *obj, "marshal_dump", 0);
 		marshal_dumper_marshal(mrb, dumper, &object, limit);
-		return;
+		DONE; return;
 	}
 	// User defined
 	if(mrb_respond_to(mrb, *obj, mrb_intern_lit(mrb, "_dump"))) {
 		marshal_dumper_class(mrb, dumper, obj, 'u', 0);
 		mrb_value data = mrb_funcall(mrb, *obj, "_dump", 1, mrb_fixnum_value(limit));
 		marshal_dumper_string(mrb, dumper, &data);
-		return;
+		DONE; return;
 	}
 	// Class
 	struct RClass* cls = mrb_obj_class(mrb, *obj);
@@ -621,7 +629,7 @@ static void marshal_dumper_marshal(mrb_state* mrb, struct marshal_dumper* dumper
 		marshal_dumper_string(mrb, dumper, &string);
 		mrb_value options = mrb_funcall(mrb, *obj, "options", 0);
 		marshal_dumper_fixnum(mrb, dumper, mrb_fixnum(options));
-		return;
+		DONE; return;
 	} else if ( mrb_class_defined(mrb, "Struct") && mrb_obj_is_kind_of(mrb, *obj, mrb_class_get(mrb, "Struct")) ) {
 		mrb_value members = mrb_iv_get(mrb, mrb_obj_value(mrb_class(mrb, *obj)), mrb_intern_lit(mrb, "__members__"));
 		marshal_dumper_class(mrb, dumper, obj, 'S', 1);
@@ -643,17 +651,17 @@ static void marshal_dumper_marshal(mrb_state* mrb, struct marshal_dumper* dumper
 				marshal_dumper_symbol(mrb, dumper, symbol);
 				marshal_dumper_marshal(mrb, dumper, &value, limit);
 			}
-		} return;
+		} DONE; return;
 		case MRB_TT_CLASS: {
 			mrb_value path = mrb_class_path(mrb, mrb_class_ptr(*obj));
 			marshal_dumper_byte(mrb, dumper, 'c');
 			marshal_dumper_string(mrb, dumper, &path);
-		} return;
+		} DONE; return;
 		case MRB_TT_MODULE: {
 			mrb_value path = mrb_class_path(mrb, mrb_class_ptr(*obj));
 			marshal_dumper_byte(mrb, dumper, 'm');
 			marshal_dumper_string(mrb, dumper, &path);
-		} return;
+		} DONE; return;
 		case MRB_TT_STRING: {
 			marshal_dumper_uclass(mrb, dumper, obj, mrb->string_class);
 			marshal_dumper_byte(mrb, dumper, '"');
@@ -703,8 +711,9 @@ static void marshal_dumper_marshal(mrb_state* mrb, struct marshal_dumper* dumper
 			marshal_dumper_marshal(mrb, dumper, &value, limit);
 		}
 	}
+	DONE; 
 }
-
+#undef DONE
 static mrb_value marshal_dump(mrb_state* mrb, mrb_value self) {
 	mrb_int argc = 0;
 	mrb_value* args = NULL;
