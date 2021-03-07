@@ -196,11 +196,13 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_value object = marshal_loader_marshal(mrb, loader);
 		mrb_int iv_len = marshal_loader_fixnum(mrb, loader);
 		mrb_int i = 0;
+		int ai = mrb_gc_arena_save( mrb );
 		for ( ; i < iv_len; i++ ) {
 			mrb_sym symbol = marshal_loader_symbol(mrb, loader);
 			mrb_value value = marshal_loader_marshal(mrb, loader);
 			if (!strcmp("E", mrb_sym2name(mrb, symbol))) continue;
 			mrb_iv_set(mrb, object, symbol, value);
+			mrb_gc_arena_restore( mrb, ai );
 		}
 		return object;
 	}
@@ -208,9 +210,12 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_value array = mrb_ary_new(mrb);
 		mrb_int len = marshal_loader_fixnum(mrb, loader);
 		mrb_int i = 0;
+		int ai;
 		marshal_loader_register_link(mrb, loader, &array);
+		ai = mrb_gc_arena_save( mrb );
 		for ( ; i < len; i++ ) {
 			mrb_ary_push(mrb, array, marshal_loader_marshal(mrb, loader));
+			mrb_gc_arena_restore( mrb, ai );
 		}
 		return array;
 	}
@@ -218,11 +223,14 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_value hash = mrb_hash_new(mrb);
 		mrb_int len = marshal_loader_fixnum(mrb, loader);
 		mrb_int i = 0;
+		int ai;
 		marshal_loader_register_link(mrb, loader, &hash);
+		ai = mrb_gc_arena_save( mrb );
 		for ( ; i < len; i++ ) {
 			mrb_value key = marshal_loader_marshal(mrb, loader);
 			mrb_value value = marshal_loader_marshal(mrb, loader);
 			mrb_hash_set(mrb, hash, key, value);
+			mrb_gc_arena_restore( mrb, ai );
 		}
 		return hash;
 	}
@@ -272,11 +280,14 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_value symbols = mrb_ary_new_capa(mrb, member_count);
 		mrb_value values = mrb_ary_new_capa(mrb, member_count);
 
+		int ai = mrb_gc_arena_save( mrb );
+		
 		mrb_int i;
 		
 		for (i = 0; i < member_count; ++i) {
 			mrb_ary_push(mrb, symbols, mrb_symbol_value(marshal_loader_symbol(mrb, loader)));
 			mrb_ary_push(mrb, values, marshal_loader_marshal(mrb, loader));
+			mrb_gc_arena_restore( mrb, ai );
 		}
 
 		for (i = 0; i < member_count; ++i) {
@@ -307,10 +318,12 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		marshal_loader_register_link(mrb, loader, &object);
 		mrb_int iv_len = marshal_loader_fixnum(mrb, loader);
 		mrb_int i = 0;
+		int ai = mrb_gc_arena_save( mrb );
 		for ( ; i < iv_len; i++ ) {
 			mrb_sym symbol = marshal_loader_symbol(mrb, loader);
 			mrb_value value = marshal_loader_marshal(mrb, loader);
 			mrb_iv_set(mrb, object, symbol, value);
+			mrb_gc_arena_restore( mrb, ai );
 		}
 		return object;
 	}
@@ -424,8 +437,10 @@ struct marshal_dumper {
 };
 
 static unsigned marshal_dumpfunc_for_string(mrb_state* mrb, struct marshal_dumper* dumper, unsigned size, void* source) {
+	int ai = mrb_gc_arena_save( mrb );
 	mrb_str_concat(mrb, dumper->dest, mrb_str_new(mrb, source, size));
 	dumper->dest_pos += size;
+	mrb_gc_arena_restore( mrb, ai );
 	return size;
 }
 
