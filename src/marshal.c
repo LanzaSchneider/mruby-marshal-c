@@ -34,6 +34,12 @@ struct marshal_loader {
 	mrb_value linked_symbols;
 };
 
+static unsigned marshal_loadfunc_for_cstring(mrb_state* mrb, struct marshal_loader* loader, unsigned size, void* dest) {
+	memcpy(dest, ((uint8_t*)mrb_cptr(loader->source)) + loader->source_pos, size );
+	loader->source_pos += size;
+	return size;
+}
+
 static unsigned marshal_loadfunc_for_string(mrb_state* mrb, struct marshal_loader* loader, unsigned size, void* dest) {
 	unsigned result_len = size;
 	if ( RSTRING_LEN(loader->source) - loader->source_pos < result_len ) {
@@ -70,7 +76,9 @@ static unsigned marshal_loader_read(mrb_state* mrb, struct marshal_loader* loade
 static int marshal_loader_initialize(mrb_state* mrb, mrb_value source, struct marshal_loader* loader) {
 	loader->source = source;
 	loader->source_pos = 0;
-	if ( mrb_string_p(source) ) {
+	if ( mrb_cptr_p(source) ) {
+		loader->load_func = marshal_loadfunc_for_cstring;
+	} else if ( mrb_string_p(source) ) {
 		loader->load_func = marshal_loadfunc_for_string;
 	} else if ( mrb_respond_to(mrb, source, mrb_intern_lit(mrb, "read")) ) {
 		loader->load_func = marshal_loadfunc_for_reader;
@@ -198,13 +206,13 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_value object = marshal_loader_marshal(mrb, loader);
 		mrb_int iv_len = marshal_loader_fixnum(mrb, loader);
 		mrb_int i = 0;
-		// int ai = mrb_gc_arena_save( mrb );
+		int ai = mrb_gc_arena_save( mrb );
 		for ( ; i < iv_len; i++ ) {
 			mrb_sym symbol = marshal_loader_symbol(mrb, loader);
 			mrb_value value = marshal_loader_marshal(mrb, loader);
 			if (!strcmp("E", mrb_sym2name(mrb, symbol))) continue;
 			mrb_iv_set(mrb, object, symbol, value);
-			// mrb_gc_arena_restore( mrb, ai );
+			mrb_gc_arena_restore( mrb, ai );
 		}
 		DONE; return object;
 	}
@@ -214,10 +222,10 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_int i = 0;
 		int ai;
 		marshal_loader_register_link(mrb, loader, &array);
-		// ai = mrb_gc_arena_save( mrb );
+		ai = mrb_gc_arena_save( mrb );
 		for ( ; i < len; i++ ) {
 			mrb_ary_push(mrb, array, marshal_loader_marshal(mrb, loader));
-			// mrb_gc_arena_restore( mrb, ai );
+			mrb_gc_arena_restore( mrb, ai );
 		}
 		DONE; return array;
 	}
@@ -227,12 +235,12 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_int i = 0;
 		int ai;
 		marshal_loader_register_link(mrb, loader, &hash);
-		// ai = mrb_gc_arena_save( mrb );
+		ai = mrb_gc_arena_save( mrb );
 		for ( ; i < len; i++ ) {
 			mrb_value key = marshal_loader_marshal(mrb, loader);
 			mrb_value value = marshal_loader_marshal(mrb, loader);
 			mrb_hash_set(mrb, hash, key, value);
-			// mrb_gc_arena_restore( mrb, ai );
+			mrb_gc_arena_restore( mrb, ai );
 		}
 		DONE; return hash;
 	}
@@ -282,14 +290,14 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		mrb_value symbols = mrb_ary_new_capa(mrb, member_count);
 		mrb_value values = mrb_ary_new_capa(mrb, member_count);
 
-		// int ai = mrb_gc_arena_save( mrb );
+		int ai = mrb_gc_arena_save( mrb );
 		
 		mrb_int i;
 		
 		for (i = 0; i < member_count; ++i) {
 			mrb_ary_push(mrb, symbols, mrb_symbol_value(marshal_loader_symbol(mrb, loader)));
 			mrb_ary_push(mrb, values, marshal_loader_marshal(mrb, loader));
-			// mrb_gc_arena_restore( mrb, ai );
+			mrb_gc_arena_restore( mrb, ai );
 		}
 
 		for (i = 0; i < member_count; ++i) {
@@ -320,12 +328,12 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		marshal_loader_register_link(mrb, loader, &object);
 		mrb_int iv_len = marshal_loader_fixnum(mrb, loader);
 		mrb_int i = 0;
-		// int ai = mrb_gc_arena_save( mrb );
+		int ai = mrb_gc_arena_save( mrb );
 		for ( ; i < iv_len; i++ ) {
 			mrb_sym symbol = marshal_loader_symbol(mrb, loader);
 			mrb_value value = marshal_loader_marshal(mrb, loader);
 			mrb_iv_set(mrb, object, symbol, value);
-			// mrb_gc_arena_restore( mrb, ai );
+			mrb_gc_arena_restore( mrb, ai );
 		}
 		DONE; return object;
 	}
@@ -421,6 +429,28 @@ static mrb_value marshal_load(mrb_state* mrb, mrb_value self) {
 					mrb_fixnum_value(major_version), mrb_fixnum_value(minor_version),
 					mrb_fixnum_value(MAJOR_VERSION), mrb_fixnum_value(MINOR_VERSION));
 			}
+		}
+		return marshal_loader_marshal(mrb, &loader);
+	}
+	return mrb_nil_value();
+}
+
+// Extern function
+extern mrb_value mrb_marshal_load( mrb_state* mrb, void* data, size_t data_size ) {
+	struct marshal_loader loader;
+	int ret = marshal_loader_initialize(mrb, mrb_cptr_value(mrb, data), &loader);
+	switch ( ret ) {
+	case MARSHAL_UNKNOWN:
+		mrb_raise(mrb, E_TYPE_ERROR, "Marshal failed.\n");
+	break;
+	}
+	{
+		uint8_t const major_version = marshal_loader_byte(mrb, &loader);
+		uint8_t const minor_version = marshal_loader_byte(mrb, &loader);
+		if ( major_version != MAJOR_VERSION || minor_version != MINOR_VERSION ) {
+			mrb_raisef(mrb, E_TYPE_ERROR, "invalid marshal version: %S.%S (expected: %S.%S)",
+				mrb_fixnum_value(major_version), mrb_fixnum_value(minor_version),
+				mrb_fixnum_value(MAJOR_VERSION), mrb_fixnum_value(MINOR_VERSION));
 		}
 		return marshal_loader_marshal(mrb, &loader);
 	}
