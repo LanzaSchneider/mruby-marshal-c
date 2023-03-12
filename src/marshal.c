@@ -7,6 +7,7 @@
 #include <mruby/string.h>
 #include <mruby/numeric.h>
 #include <mruby/variable.h>
+#include <mruby/internal.h>
 
 #include <stdint.h>
 #include <string.h>
@@ -751,7 +752,7 @@ static mrb_value marshal_dump(mrb_state* mrb, mrb_value self) {
 	if ( mrb_get_args(mrb, "*!", &args, &argc) && argc > 0 ) {
 		mrb_value obj = args[0];
 		mrb_value port = (argc >= 2 ? args[1] : mrb_nil_value());
-		mrb_int limit = (argc >= 3 ? mrb_fixnum(mrb_convert_to_integer(mrb, args[2], 10)) : 0xFF);
+		mrb_int limit = (argc >= 3 ? mrb_as_int(mrb, args[2]) : 0xFF);
 		struct marshal_dumper dumper;
 		regexp_class = mrb_class_get(mrb, "Regexp");
 		if ( !mrb_string_p(port) && mrb_respond_to(mrb, port, mrb_intern_lit(mrb, "write")) ) {
