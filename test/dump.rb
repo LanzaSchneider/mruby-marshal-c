@@ -46,13 +46,13 @@ end
 
 Regexp = Class.new unless Object.const_defined? :Regexp
 
-assert('Marshal#dump') do
+assert('Marshal.dump') do
   assert_equal Marshal.dump(nil), "\004\b0"
   assert_equal Marshal.dump(true), "\004\bT"
   assert_equal Marshal.dump(false), "\004\bF"
 end
 
-assert('Marshal#dump with a Fixnum') do
+assert('Marshal.dump with a Fixnum') do
   [ [Marshal,  0,       "\004\bi\000"],
     [Marshal,  5,       "\004\bi\n"],
     [Marshal,  8,       "\004\bi\r"],
@@ -76,12 +76,12 @@ assert('Marshal#dump with a Fixnum') do
   end
 end
 
-assert('Marshal#dump with a symbol') do
+assert('Marshal.dump with a symbol') do
   assert_equal Marshal.dump(:symbol), "\004\b:\vsymbol"
   assert_equal Marshal.dump(('big' * 100).to_sym), "\004\b:\002,\001#{'big' * 100}"
 end
 
-assert('Marshal#dump with a object') do
+assert('Marshal.dump with a object') do
   # with an object responding to #marshal_dump
   assert_equal Marshal.dump(UserMarshal.new), "\x04\bU:\x10UserMarshal:\tdata"
 
@@ -89,7 +89,7 @@ assert('Marshal#dump with a object') do
   assert_equal Marshal.dump(UserDefined.new), "\004\bu:\020UserDefined\022\004\b[\a:\nstuff;\000"
 end
 
-assert('Marshal#dump with a float') do
+assert('Marshal.dump with a float') do
   [ [Marshal,  0.0,             "\004\bf\0060"],
     [Marshal, -0.0,             "\004\bf\a-0"],
     [Marshal,  1.0,             "\004\bf\0061"],
@@ -105,7 +105,7 @@ assert('Marshal#dump with a float') do
   end
 end
 
-assert('Marshal#dump with an Array') do
+assert('Marshal.dump with an Array') do
   assert_equal Marshal.dump([]), "\004\b[\000"
   assert_equal Marshal.dump([:a, 1, 2]), "\004\b[\b:\006ai\006i\a"
   a = []
@@ -113,6 +113,6 @@ assert('Marshal#dump with an Array') do
   assert_equal Marshal.dump(a), "\x04\b[\x06@\x00"
 end
 
-assert('Marshal#dump with an Hash') do
+assert('Marshal.dump with an Hash') do
   assert_equal Marshal.dump({}), "\004\b{\000"
 end
