@@ -699,11 +699,63 @@ static void marshal_dumper_marshal(mrb_state* mrb, struct marshal_dumper* dumper
 			marshal_dumper_string(mrb, dumper, obj);
 		} break;
 		case MRB_TT_FLOAT: {
-			char buf[256];
-			sprintf(buf, "%.16f", mrb_float(*obj));
+			mrb_float d = mrb_float(*obj);
 			marshal_dumper_byte(mrb, dumper, 'f');
-			marshal_dumper_fixnum(mrb, dumper, strlen(buf));
-			marshal_dumper_dump(mrb, dumper, strlen(buf), buf);
+			if (isinf(d))
+			{
+				const char *inf;
+				if (d < 0)
+					inf = "-inf";
+				else
+					inf = "inf";
+				marshal_dumper_fixnum(mrb, dumper, strlen(inf));
+				marshal_dumper_dump(mrb, dumper, strlen(inf), inf);
+			}
+			else if (isnan(d))
+			{
+				const char *nan = "nan";
+				marshal_dumper_fixnum(mrb, dumper, strlen(nan));
+				marshal_dumper_dump(mrb, dumper, strlen(nan), nan);
+			}
+			else if (d == 0.0)
+			{
+				const char *zero;
+				if (signbit(d))
+					zero = "-0";
+				else
+					zero = "0";
+				marshal_dumper_fixnum(mrb, dumper, strlen(zero));
+				marshal_dumper_dump(mrb, dumper, strlen(zero), zero);
+			}
+			else
+			{
+				char buf[256];
+				sprintf(buf, "%lf", (double) d);
+				{
+					int len = strlen(buf);
+					int bound_left = 0, bound_right = len - 1;
+					for (int i = 0; i < len; i++)
+						if (buf[i] == '.')
+						{
+							bound_left = i - 1;
+							break;
+						}
+					for (int i = bound_right; i > bound_left; i--)
+					{
+						if (i < 0)
+							break;
+						if (buf[i] == '0' || buf[i] == '.')
+						{
+							buf[i] = '\0';
+						}
+						else
+							break;
+					}
+				}
+				marshal_dumper_fixnum(mrb, dumper, strlen(buf));
+				marshal_dumper_dump(mrb, dumper, strlen(buf), buf);
+			}
+			
 		} break;
 		case MRB_TT_ARRAY: {
 			marshal_dumper_uclass(mrb, dumper, obj, mrb->array_class);
