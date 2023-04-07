@@ -255,10 +255,18 @@ static mrb_value marshal_loader_marshal(mrb_state* mrb, struct marshal_loader* l
 		}
 		memcpy(buffer, RSTRING_PTR(string), RSTRING_LEN(string));
 		buffer[RSTRING_LEN(string)] = '\0';
+
+		if (strcmp(buffer, "nan") == 0)
+			floatia = NAN;
+		else if (strcmp(buffer, "inf") == 0)
+			floatia = INFINITY;
+		else if (strcmp(buffer, "-inf") == 0)
+			floatia = -INFINITY;
+		else
 		{
 			double floatinho;
 			sscanf(buffer, "%lf", &floatinho);
-			floatia = (mrb_float)floatinho;
+			floatia = (mrb_float) floatinho;
 		}
 		value = mrb_float_value(mrb, floatia);
 		marshal_loader_register_link(mrb, loader, &value);
