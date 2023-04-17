@@ -175,23 +175,20 @@ w_float(mrb_state *mrb, double d, struct dump_arg *arg)
         else
           break;
       }
-      w_bytes(mrb, buf, len, arg);
     }
+    w_bytes(mrb, buf, strlen(buf), arg);
   }
 }
 
 static void
 w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg)
 {
-  mrb_int num;
-
-  for (khint_t i = 0; i < kh_end(arg->symbols); i++)
   {
-    if (kh_exist(arg->symbols, i))
+    khint_t i = kh_get(symbol_dump_table, mrb, arg->symbols, id);
+    if (i != kh_end(arg->symbols) && kh_exist(arg->symbols, i))
     {
-      num = kh_value(arg->symbols, i);
       w_byte(mrb, TYPE_SYMLINK, arg);
-      w_long(mrb, (long)num, arg);
+      w_long(mrb, kh_value(arg->symbols, i), arg);
       return;
     }
   }
@@ -201,7 +198,7 @@ w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg)
   w_byte(mrb, TYPE_SYMBOL, arg);
   w_bytes(mrb, RSTRING_PTR(sym), RSTRING_LEN(sym), arg);
 
-  kh_value(arg->symbols, kh_put(symbol_dump_table, mrb, arg->symbols, id)) = kh_n_buckets(arg->symbols);
+  kh_value(arg->symbols, kh_put(symbol_dump_table, mrb, arg->symbols, id)) = kh_size(arg->symbols);
 }
 
 static void
@@ -321,7 +318,7 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
   struct iv_tbl *ivtbl = NULL;
 
   int hasiv = 0;
-#define has_ivars(obj, ivtbl) (mrb_object_p(obj) && (ivtbl = mrb_obj_ptr(obj)->iv))
+#define has_ivars(obj, ivtbl) FALSE// (mrb_object_p(obj) && (ivtbl = mrb_obj_ptr(obj)->iv))
 
   if (limit == 0)
   {
@@ -332,9 +329,9 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
   c_arg.limit = limit;
   c_arg.arg = arg;
 
-  for (khint_t i = 0; i < kh_end(arg->data); i++)
   {
-    if (kh_exist(arg->data, i))
+    khint_t i = kh_get(object_dump_table, mrb, arg->data, obj);
+    if (i != kh_end(arg->data) && kh_exist(arg->data, i))
     {
       w_byte(mrb, TYPE_LINK, arg);
       w_long(mrb, (long)kh_value(arg->data, i), arg);
@@ -383,7 +380,7 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
     {
       volatile mrb_value v;
 
-      kh_value(arg->data, kh_put(object_dump_table, mrb, arg->data, obj)) = kh_n_buckets(arg->data);
+      kh_value(arg->data, kh_put(object_dump_table, mrb, arg->data, obj)) = kh_size(arg->data);
 
       v = mrb_funcall_id(mrb, obj, s_mdump, 0);
       check_dump_arg(mrb, arg, s_mdump);
@@ -425,11 +422,11 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
       {
         w_ivar(mrb, obj, ivtbl, &c_arg);
       }
-      kh_value(arg->data, kh_put(object_dump_table, mrb, arg->data, obj)) = kh_n_buckets(arg->data);
+      kh_value(arg->data, kh_put(object_dump_table, mrb, arg->data, obj)) = kh_size(arg->data);
       return;
     }
 
-    kh_value(arg->data, kh_put(object_dump_table, mrb, arg->data, obj)) = kh_n_buckets(arg->data);
+    kh_value(arg->data, kh_put(object_dump_table, mrb, arg->data, obj)) = kh_size(arg->data);
 
     hasiv = has_ivars(obj, ivtbl);
     if (hasiv)

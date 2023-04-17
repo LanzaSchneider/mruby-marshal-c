@@ -44,14 +44,14 @@ check_load_arg(mrb_state *mrb, struct load_arg *arg, mrb_sym sym)
   }
 }
 
-#define r_entry(mrb, v, arg) r_entry0(mrb, (v), kh_n_buckets(arg->data), (arg))
+#define r_entry(mrb, v, arg) r_entry0(mrb, (v), kh_size(arg->data), (arg))
 static mrb_value r_object(mrb_state *, struct load_arg *);
 static mrb_sym r_symbol(mrb_state *, struct load_arg *);
 
 static mrb_int
 r_prepare(mrb_state *mrb, struct load_arg *arg)
 {
-  mrb_int idx = kh_n_buckets(arg->data);
+  mrb_int idx = kh_size(arg->data);
   kh_value(arg->data, kh_put(object_load_table, mrb, arg->data, idx)) = mrb_undef_value();
   return idx;
 }
@@ -139,13 +139,14 @@ r_symlink(mrb_state *mrb, struct load_arg *arg)
 {
   long num = r_long(mrb, arg);
 
-  for (khint_t i = 0; i < kh_end(arg->symbols); i++)
   {
-    if (kh_exist(arg->symbols, i) && kh_key(arg->symbols, i) == num)
+    khint_t i = kh_get(symbol_load_table, mrb, arg->symbols, num);
+    if (i != kh_end(arg->symbols) && kh_exist(arg->symbols, i))
     {
       return kh_value(arg->symbols, i);
     }
   }
+
   mrb_raise(mrb, E_ARGUMENT_ERROR, "bad symbol");
   return ~0;
 }
@@ -156,7 +157,7 @@ r_symreal(mrb_state *mrb, struct load_arg *arg, int ivar)
   volatile mrb_value s = r_bytes(mrb, arg);
   mrb_sym id;
   // int idx = -1;
-  mrb_int n = kh_n_buckets(arg->symbols);
+  mrb_int n = kh_size(arg->symbols);
 
   khint_t x = kh_put(symbol_load_table, mrb, arg->symbols, n);
   kh_value(arg->symbols, x) = 0;
@@ -300,10 +301,9 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
   case TYPE_LINK:
     id = r_long(mrb, arg);
 
-    khint_t i;
-    for (i = 0; i < kh_end(arg->data); i++)
     {
-      if (kh_exist(arg->data, i) && kh_key(arg->data, i) == id)
+      khint_t i = kh_get(object_load_table, mrb, arg->data, id);
+      if (i != kh_end(arg->data) && kh_exist(arg->data, i))
       {
         v = kh_value(arg->data, i);
         if (arg->proc)
@@ -316,10 +316,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
       }
     }
 
-    if (i == kh_end(arg->data))
-    {
-      mrb_raise(mrb, E_ARGUMENT_ERROR, "dump format error (unlinked)");
-    }
+    mrb_raise(mrb, E_ARGUMENT_ERROR, "dump format error (unlinked)");
     break;
 
   case TYPE_IVAR:
