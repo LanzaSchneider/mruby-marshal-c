@@ -31,7 +31,7 @@ class UserMarshal
 end
 
 Regexp = Class.new unless Object.const_defined? :Regexp
-Struct::Pyramid = Struct.new
+Struct::Pyramid = Struct.new(:x, :y)
 
 assert('Marshal.load') do
   assert_equal Marshal.load("\x04\b0"), nil
