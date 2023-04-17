@@ -280,11 +280,37 @@ r_ivar(mrb_state *mrb, mrb_value obj, int *has_encoding, struct load_arg *arg)
 }
 
 static mrb_value
+mrb_instance_alloc(mrb_state *mrb, mrb_value cv)
+{
+  struct RClass *c = mrb_class_ptr(cv);
+  struct RObject *o;
+  enum mrb_vtype ttype = MRB_INSTANCE_TT(c);
+
+  if (c->tt == MRB_TT_SCLASS)
+    mrb_raise(mrb, E_TYPE_ERROR, "can't create instance of singleton class");
+
+  if (c == mrb->nil_class || c == mrb->false_class) {
+    mrb_assert(ttype == 0);
+  }
+  else if (ttype == 0) {
+    ttype = MRB_TT_OBJECT;
+  }
+  if (ttype <= MRB_TT_CPTR) {
+    if (ttype == MRB_TT_UNDEF) {
+      mrb_raisef(mrb, E_TYPE_ERROR, "allocator undefined for %v", cv);
+    }
+    mrb_raisef(mrb, E_TYPE_ERROR, "can't create instance of %v", cv);
+  }
+  o = (struct RObject*)mrb_obj_alloc(mrb, ttype, c);
+  return mrb_obj_value(o);
+}
+
+static mrb_value
 obj_alloc_by_path(mrb_state *mrb, mrb_value path, struct load_arg *arg)
 {
   struct RClass *klass;
   klass = mrb_class_get(mrb, RSTRING_CSTR(mrb, path));
-  return mrb_obj_value(mrb_obj_alloc(mrb, MRB_INSTANCE_TT(klass), klass));
+  return mrb_instance_alloc(mrb, mrb_obj_value(klass));
 }
 
 #define load_mantissa(d, buf, len) (d)
@@ -363,7 +389,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
     if (mrb_module_p(v))
       ; // TYPE(v) == T_MODULE || !RTEST(rb_class_inherited_p(c, RBASIC(v)->klass)))
     {
-      mrb_value tmp = mrb_obj_value(mrb_obj_alloc(mrb, MRB_INSTANCE_TT(c), c));
+      mrb_value tmp = mrb_instance_alloc(mrb, mrb_obj_value(c));
 
       if (mrb_type(v) != mrb_type(tmp))
         goto format_error;
@@ -592,7 +618,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
     struct RClass *klass = mrb_class_get(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
     long len = r_long(mrb, arg);
 
-    v = mrb_obj_value(mrb_obj_alloc(mrb, MRB_INSTANCE_TT(klass), klass));
+    v = mrb_instance_alloc(mrb, mrb_obj_value(klass));
     if (mrb_type(v) != MRB_TT_STRUCT)
     {
       mrb_raisef(mrb, E_TYPE_ERROR, "class %s not a struct", mrb_class_name(mrb, klass));
@@ -647,7 +673,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
     struct RClass *klass = mrb_class_get(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
     mrb_value data;
 
-    v = mrb_obj_value(mrb_obj_alloc(mrb, MRB_INSTANCE_TT(klass), klass));
+    v = mrb_instance_alloc(mrb, mrb_obj_value(klass));
     if (!mrb_nil_p(extmod))
     {
       // TODO: extend
@@ -699,7 +725,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
     }
     else
     {
-      v = mrb_obj_value(mrb_obj_alloc(mrb, MRB_INSTANCE_TT(klass), klass));
+      v = mrb_instance_alloc(mrb, mrb_obj_value(klass));
     }
     if (!mrb_data_p(v))
     {
