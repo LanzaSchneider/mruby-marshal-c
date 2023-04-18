@@ -258,6 +258,9 @@ r_ivar(mrb_state *mrb, mrb_value obj, int *has_encoding, struct load_arg *arg)
   long len;
 
   len = r_long(mrb, arg);
+
+  int ai = mrb_gc_arena_save(mrb);
+
   if (len > 0)
   {
     do
@@ -276,6 +279,7 @@ r_ivar(mrb_state *mrb, mrb_value obj, int *has_encoding, struct load_arg *arg)
       mrb_iv_set(mrb, obj, id, val);
       //   rb_ivar_set(obj, id, val);
       // }
+      mrb_gc_arena_restore(mrb, ai);
     } while (--len > 0);
   }
 }
@@ -591,9 +595,11 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
     v = mrb_ary_new_capa(mrb, len);
     v = r_entry(mrb, v, arg);
+    int ai = mrb_gc_arena_save(mrb);
     while (len--)
     {
       mrb_ary_push(mrb, v, r_object(mrb, arg));
+      mrb_gc_arena_restore(mrb, ai);
     }
     v = r_leave(mrb, v, arg);
   }
@@ -606,11 +612,13 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
     v = mrb_hash_new(mrb);
     v = r_entry(mrb, v, arg);
+    int ai = mrb_gc_arena_save(mrb);
     while (len--)
     {
       mrb_value key = r_object(mrb, arg);
       mrb_value value = r_object(mrb, arg);
       mrb_hash_set(mrb, v, key, value);
+      mrb_gc_arena_restore(mrb, ai);
     }
     if (type == TYPE_HASH_DEF)
     {
@@ -643,6 +651,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
     v = r_entry0(mrb, v, idx, arg);
     values = mrb_ary_new_capa(mrb, len);
+    int ai = mrb_gc_arena_save(mrb);
     for (i = 0; i < len; i++)
     {
       slot = r_symbol(mrb, arg);
@@ -652,6 +661,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
         mrb_raisef(mrb, E_TYPE_ERROR, "struct %s not compatible (:%s for :%s)", mrb_class_name(mrb, klass), mrb_sym_name(mrb, slot), mrb_sym_name(mrb, mrb_symbol(RARRAY_PTR(mem)[i])));
       }
       mrb_ary_push(mrb, values, r_object(mrb, arg));
+      mrb_gc_arena_restore(mrb, ai);
     }
     mrb_funcall_argv(mrb, v, MRB_SYM(initialize), len, RARRAY_PTR(values)); // rb_struct_initialize(v, values);
     v = r_leave(mrb, v, arg);
@@ -817,37 +827,54 @@ r_object(mrb_state *mrb, struct load_arg *arg)
 static void
 clear_load_arg(mrb_state *mrb, struct load_arg *arg)
 {
-  kh_destroy(symbol_load_table, mrb, arg->symbols);
-  kh_destroy(object_load_table, mrb, arg->data);
+  if (arg->symbols)
+    kh_destroy(symbol_load_table, mrb, arg->symbols);
+  if (arg->data)
+    kh_destroy(object_load_table, mrb, arg->data);
+  arg->symbols = NULL;
+  arg->data = NULL;
 }
+
+#include <mruby/data.h>
+
+static void
+free_load_arg(mrb_state *mrb, void *ud)
+{
+  clear_load_arg(mrb, (struct load_arg *) ud);
+  mrb_free(mrb, ud);
+}
+
+static mrb_data_type _mrb_load_arg = { "Marshal::LoadARG", free_load_arg };
 
 mrb_value mrb_marshal_load(mrb_state *mrb, mrb_marshal_reader_t reader, mrb_value source)
 {
-  struct load_arg arg; // TODO: needs gc protection
-  arg.src = source;
-  arg.position = 0;
-  arg.reader = reader;
-  arg.symbols = kh_init(symbol_load_table, mrb);
-  arg.data = kh_init(object_load_table, mrb);
-  arg.proc = NULL;
+  struct load_arg *arg;
+  struct RData *wrapper;
+  Data_Make_Struct(mrb, mrb->object_class, struct load_arg, &_mrb_load_arg, arg, wrapper);
+  arg->src = source;
+  arg->position = 0;
+  arg->reader = reader;
+  arg->symbols = kh_init(symbol_load_table, mrb);
+  arg->data = kh_init(object_load_table, mrb);
+  arg->proc = NULL;
 
   mrb_value v;
 
   int major, minor;
 
-  major = r_byte(mrb, &arg);
-  minor = r_byte(mrb, &arg);
+  major = r_byte(mrb, arg);
+  minor = r_byte(mrb, arg);
 
   if (major != MARSHAL_MAJOR || minor > MARSHAL_MINOR)
   {
-    clear_load_arg(mrb, &arg);
+    clear_load_arg(mrb, arg);
     mrb_raisef(mrb, E_TYPE_ERROR, "incompatible marshal file format (can't be read)\n\
 \tformat version %d.%d required; %d.%d given",
                MARSHAL_MAJOR, MARSHAL_MINOR, major, minor);
   }
 
-  v = r_object(mrb, &arg);
-  clear_load_arg(mrb, &arg);
+  v = r_object(mrb, arg);
+  clear_load_arg(mrb, arg);
 
   return v;
 }

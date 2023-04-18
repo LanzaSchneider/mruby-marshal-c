@@ -196,10 +196,14 @@ w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg)
     }
   }
 
+  int ai = mrb_gc_arena_save(mrb);
+
   mrb_value sym = mrb_sym_str(mrb, id);
 
   w_byte(mrb, TYPE_SYMBOL, arg);
   w_bytes(mrb, RSTRING_PTR(sym), RSTRING_LEN(sym), arg);
+
+  mrb_gc_arena_restore(mrb, ai);
 
   kh_value(arg->symbols, kh_put(symbol_dump_table, mrb, arg->symbols, id)) = kh_size(arg->symbols);
 }
@@ -207,8 +211,10 @@ w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg)
 static void
 w_unique(mrb_state *mrb, mrb_value s, struct dump_arg *arg)
 {
+  int ai = mrb_gc_arena_save(mrb);
   // TODO: must_not_be_anonymous("class", s);
   w_symbol(mrb, mrb_intern_str(mrb, s), arg);
+  mrb_gc_arena_restore(mrb, ai);
 }
 
 static void w_object(mrb_state *, mrb_value, struct dump_arg *, int);
@@ -228,16 +234,22 @@ w_class(mrb_state *mrb, char type, mrb_value obj, struct dump_arg *arg, int chec
   mrb_value path;
   struct RClass *klass;
 
+  int ai = mrb_gc_arena_save(mrb);
+
   klass = mrb_obj_class(mrb, obj);
   // TODO: w_extended(mrb, klass, arg, check);
   w_byte(mrb, type, arg);
   path = mrb_class_path(mrb, klass);
   w_unique(mrb, path, arg);
+
+  mrb_gc_arena_restore(mrb, ai);
 }
 
 static void
 w_uclass(mrb_state *mrb, mrb_value obj, struct RClass *super, struct dump_arg *arg)
 {
+  int ai = mrb_gc_arena_save(mrb);
+
   struct RClass *klass = mrb_obj_class(mrb, obj);
 
   // TODO: w_extended(mrb, klass, arg, TRUE);
@@ -246,17 +258,24 @@ w_uclass(mrb_state *mrb, mrb_value obj, struct RClass *super, struct dump_arg *a
     w_byte(mrb, TYPE_UCLASS, arg);
     w_unique(mrb, mrb_class_path(mrb, klass), arg);
   }
+
+  mrb_gc_arena_restore(mrb, ai);
 }
 
 static int
 w_obj_each(mrb_state *mrb, mrb_sym id, mrb_value value, void *ud)
 {
+  int ai = mrb_gc_arena_save(mrb);
   struct dump_call_arg *arg = (struct dump_call_arg *)ud;
   // if (id == mrb_id_encoding()) return;
   if (id == mrb_intern_cstr(mrb, "E"))
+  {
+    mrb_gc_arena_restore(mrb, ai);
     return 0; // continue
+  }
   w_symbol(mrb, id, arg->arg);
   w_object(mrb, value, arg->arg, arg->limit);
+  mrb_gc_arena_restore(mrb, ai);
   return 0; // continue
 }
 
@@ -341,6 +360,8 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
       return;
     }
   }
+
+  int ai = mrb_gc_arena_save(mrb);
 
   if (mrb_nil_p(obj))
   {
@@ -582,23 +603,47 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
   {
     w_ivar(mrb, obj, ivtbl, &c_arg);
   }
+
+  mrb_gc_arena_restore(mrb, ai);
 }
+
+static void 
+clear_dump_arg(mrb_state *mrb, struct dump_arg *arg)
+{
+  if (arg->symbols)
+    kh_destroy(symbol_dump_table, mrb, arg->symbols);
+  if (arg->data)
+    kh_destroy(object_dump_table, mrb, arg->data);
+  arg->symbols = NULL;
+  arg->data = NULL;
+}
+
+#include <mruby/data.h>
+
+static void
+free_dump_arg(mrb_state *mrb, void *ud)
+{
+  clear_dump_arg(mrb, (struct dump_arg *) ud);
+  mrb_free(mrb, ud);
+}
+
+static mrb_data_type _mrb_dump_arg = { "Marshal::DumpARG", free_dump_arg };
 
 void mrb_marshal_dump(mrb_state *mrb, mrb_value obj, mrb_marshal_writer_t writer, mrb_value target, int limit)
 {
-  struct dump_arg arg; // TODO: needs gc protection
-  arg.dest = target;
-  arg.position = 0;
-  arg.writer = writer;
-  arg.symbols = kh_init(symbol_dump_table, mrb);
-  arg.data = kh_init(object_dump_table, mrb);
+  struct dump_arg *arg;
+  struct RData *wrapper;
+  Data_Make_Struct(mrb, mrb->object_class, struct dump_arg, &_mrb_dump_arg, arg, wrapper);
+  arg->dest = target;
+  arg->position = 0;
+  arg->writer = writer;
+  arg->symbols = kh_init(symbol_dump_table, mrb);
+  arg->data = kh_init(object_dump_table, mrb);
+  arg->regexp_class = mrb_const_defined(mrb, mrb_obj_value(mrb->object_class), mrb_intern_cstr(mrb, REGEXP_CLASS)) ? mrb_class_get(mrb, REGEXP_CLASS) : NULL;
 
-  arg.regexp_class = mrb_const_defined(mrb, mrb_obj_value(mrb->object_class), mrb_intern_cstr(mrb, REGEXP_CLASS)) ? mrb_class_get(mrb, REGEXP_CLASS) : NULL;
+  w_byte(mrb, MARSHAL_MAJOR, arg);
+  w_byte(mrb, MARSHAL_MINOR, arg);
+  w_object(mrb, obj, arg, limit);
 
-  w_byte(mrb, MARSHAL_MAJOR, &arg);
-  w_byte(mrb, MARSHAL_MINOR, &arg);
-  w_object(mrb, obj, &arg, limit);
-
-  kh_destroy(symbol_dump_table, mrb, arg.symbols);
-  kh_destroy(object_dump_table, mrb, arg.data);
+  clear_dump_arg(mrb, arg);
 }
