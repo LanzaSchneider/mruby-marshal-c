@@ -19,7 +19,7 @@ MRB_BEGIN_DECL
  * @param position the write position of dest
  * @return bytes written
  */
-typedef mrb_uint (*mrb_marshal_writer_t)(mrb_state *mrb, const void *src, mrb_uint size, mrb_value dest, mrb_uint position);
+typedef int (*mrb_marshal_writer_t)(mrb_state *mrb, const void *src, int size, mrb_value dest, mrb_uint position);
 
 /**
  * Function pointer type for mruby-marshal-c reader.
@@ -31,7 +31,7 @@ typedef mrb_uint (*mrb_marshal_writer_t)(mrb_state *mrb, const void *src, mrb_ui
  * @param position the read position of src
  * @return bytes read
  */
-typedef mrb_uint (*mrb_marshal_reader_t)(mrb_state *mrb, mrb_value src, void *dest, mrb_uint size, mrb_uint position);
+typedef int (*mrb_marshal_reader_t)(mrb_state *mrb, mrb_value src, void *dest, int size, mrb_uint position);
 
 MRB_API void mrb_marshal_dump(mrb_state *mrb, mrb_value obj, mrb_marshal_writer_t writer, mrb_value target, int limit);
 MRB_API mrb_value mrb_marshal_load(mrb_state *mrb, mrb_marshal_reader_t reader, mrb_value source);
