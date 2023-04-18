@@ -30,8 +30,27 @@ class UserMarshal
   def ==(other) self.class === other and @data == other.data end
 end
 
-Regexp = Class.new unless Object.const_defined? :Regexp
-Struct::Pyramid = Struct.new(:x, :y)
+Regexp = Class.new do
+  attr_reader :source
+  def self.compile string = '', option = nil
+    self.new string, option
+  end
+
+  def initialize string = '', option = nil
+    @source = string
+    @option = 0
+    @option = option if option.is_a? Fixnum
+  end
+
+  def == other
+    [source, options] == [other.source, other.options]
+  end
+
+  def options
+    @option
+  end
+end unless Object.const_defined? :Regexp
+Struct::Pyramid = Struct.new
 
 assert('Marshal.load') do
   assert_equal Marshal.load("\x04\b0"), nil
@@ -39,22 +58,22 @@ assert('Marshal.load') do
   assert_equal Marshal.load("\x04\bF"), false
 end
 
-# assert('Marshal.load for an array containing the same objects') do
-#   s = 'oh'
-#   b = 'hi'
-#   r = Regexp.new
-#   d = [b, :no, s, :go]
-#   c = String
-#   f = 1.0
+assert('Marshal.load for an array containing the same objects') do
+  s = 'oh'
+  b = 'hi'
+  r = Regexp.new
+  d = [b, :no, s, :go]
+  c = String
+  f = 1.0
 
-#   o1 = UserMarshalWithIvar.new; o2 = UserMarshal.new
+  o1 = UserMarshalWithIvar.new; o2 = UserMarshal.new
 
-#   obj = [:so, 'hello', 100, :so, :so, d, :so, o2, :so, :no, o2,
-#           :go, c, nil, Struct::Pyramid.new, f, :go, :no, s, b, r,
-#           :so, 'huh', o1, true, b, b, 99, r, b, s, :so, f, c, :no, o1, d]
+  obj = [:so, 'hello', 100, :so, :so, d, :so, o2, :so, :no, o2,
+          :go, c, nil, Struct::Pyramid.new, f, :go, :no, s, b, r,
+          :so, 'huh', o1, true, b, b, 99, r, b, s, :so, f, c, :no, o1, d]
 
-#   assert_equal Marshal.load("\004\b[*:\aso\"\nhelloii;\000;\000[\t\"\ahi:\ano\"\aoh:\ago;\000U:\020UserMarshal\"\nstuff;\000;\006@\n;\ac\vString0S:\024Struct::Pyramid\000f\0061;\a;\006@\t@\b/\000\000;\000\"\bhuhU:\030UserMarshalWithIvar[\006\"\fmy dataT@\b@\bih@\017@\b@\t;\000@\016@\f;\006@\021@\a"), obj
-# end
+  assert_equal Marshal.load("\004\b[*:\aso\"\nhelloii;\000;\000[\t\"\ahi:\ano\"\aoh:\ago;\000U:\020UserMarshal\"\nstuff;\000;\006@\n;\ac\vString0S:\024Struct::Pyramid\000f\0061;\a;\006@\t@\b/\000\000;\000\"\bhuhU:\030UserMarshalWithIvar[\006\"\fmy dataT@\b@\bih@\017@\b@\t;\000@\016@\f;\006@\021@\a"), obj
+end
 
 assert('Marshal.load for a Symbol') do
   sym = Marshal.load("\004\b:\vsymbol")

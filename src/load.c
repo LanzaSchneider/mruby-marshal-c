@@ -9,6 +9,7 @@
 #include <mruby/hash.h>
 #include <mruby/object.h>
 #include <mruby/proc.h>
+#include <mruby/re.h>
 
 #include <mruby/presym.h>
 
@@ -305,11 +306,22 @@ mrb_instance_alloc(mrb_state *mrb, mrb_value cv)
   return mrb_obj_value(o);
 }
 
+static struct RClass *
+path_find_class(mrb_state *mrb, const char *path)
+{
+  int ai = mrb_gc_arena_save(mrb);
+  mrb_value v = mrb_funcall_id(mrb, mrb_obj_value(mrb->object_class), MRB_SYM(const_get), 1, mrb_str_new_cstr(mrb, path));
+  mrb_gc_arena_restore(mrb, ai);
+  if (mrb_class_p(v))
+    return mrb_class_ptr(v);
+  mrb_raisef(mrb, E_TYPE_ERROR, "%s must be a Class", path);
+}
+
 static mrb_value
 obj_alloc_by_path(mrb_state *mrb, mrb_value path, struct load_arg *arg)
 {
   struct RClass *klass;
-  klass = mrb_class_get(mrb, RSTRING_CSTR(mrb, path));
+  klass = path_find_class(mrb, RSTRING_CSTR(mrb, path));
   return mrb_instance_alloc(mrb, mrb_obj_value(klass));
 }
 
@@ -337,8 +349,8 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
           mrb_assert(mrb_proc_p(*arg->proc));
           v = mrb_funcall_id(mrb, *arg->proc, s_call, 1, v);
           check_load_arg(mrb, arg, s_call);
-          break;
         }
+        break;
       }
     }
 
@@ -374,7 +386,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
   case TYPE_UCLASS:
   {
-    struct RClass *c = mrb_class_get(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
+    struct RClass *c = path_find_class(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
 
     // if (FL_TEST(c, FL_SINGLETON))
     // {
@@ -504,74 +516,74 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
     v = r_leave(mrb, v, arg);
     break;
 
-    // case TYPE_REGEXP:
-    // {
-    //   volatile VALUE str = r_bytes(arg);
-    //   int options = r_byte(arg);
-    //   int has_encoding = FALSE;
-    //   st_index_t idx = r_prepare(arg);
+    case TYPE_REGEXP:
+    {
+      volatile mrb_value str = r_bytes(mrb, arg);
+      int options = r_byte(mrb, arg);
+      int has_encoding = FALSE;
+      mrb_int idx = r_prepare(mrb, arg);
 
-    //   if (ivp)
-    //   {
-    //     r_ivar(str, &has_encoding, arg);
-    //     *ivp = FALSE;
-    //   }
-    //   if (!has_encoding)
-    //   {
-    //     /* 1.8 compatibility; remove escapes undefined in 1.8 */
-    //     char *ptr = RSTRING_PTR(str), *dst = ptr, *src = ptr;
-    //     long len = RSTRING_LEN(str);
-    //     long bs = 0;
-    //     for (; len-- > 0; *dst++ = *src++)
-    //     {
-    //       switch (*src)
-    //       {
-    //       case '\\':
-    //         bs++;
-    //         break;
-    //       case 'g':
-    //       case 'h':
-    //       case 'i':
-    //       case 'j':
-    //       case 'k':
-    //       case 'l':
-    //       case 'm':
-    //       case 'o':
-    //       case 'p':
-    //       case 'q':
-    //       case 'u':
-    //       case 'y':
-    //       case 'E':
-    //       case 'F':
-    //       case 'H':
-    //       case 'I':
-    //       case 'J':
-    //       case 'K':
-    //       case 'L':
-    //       case 'N':
-    //       case 'O':
-    //       case 'P':
-    //       case 'Q':
-    //       case 'R':
-    //       case 'S':
-    //       case 'T':
-    //       case 'U':
-    //       case 'V':
-    //       case 'X':
-    //       case 'Y':
-    //         if (bs & 1)
-    //           --dst;
-    //       default:
-    //         bs = 0;
-    //         break;
-    //       }
-    //     }
-    //     rb_str_set_len(str, dst - ptr);
-    //   }
-    //   v = r_entry0(rb_reg_new_str(str, options), idx, arg);
-    //   v = r_leave(v, arg);
-    // }
-    // break;
+      if (ivp)
+      {
+        r_ivar(mrb, str, &has_encoding, arg);
+        *ivp = FALSE;
+      }
+      // if (!has_encoding)
+      // {
+      //   /* 1.8 compatibility; remove escapes undefined in 1.8 */
+      //   char *ptr = RSTRING_PTR(str), *dst = ptr, *src = ptr;
+      //   long len = RSTRING_LEN(str);
+      //   long bs = 0;
+      //   for (; len-- > 0; *dst++ = *src++)
+      //   {
+      //     switch (*src)
+      //     {
+      //     case '\\':
+      //       bs++;
+      //       break;
+      //     case 'g':
+      //     case 'h':
+      //     case 'i':
+      //     case 'j':
+      //     case 'k':
+      //     case 'l':
+      //     case 'm':
+      //     case 'o':
+      //     case 'p':
+      //     case 'q':
+      //     case 'u':
+      //     case 'y':
+      //     case 'E':
+      //     case 'F':
+      //     case 'H':
+      //     case 'I':
+      //     case 'J':
+      //     case 'K':
+      //     case 'L':
+      //     case 'N':
+      //     case 'O':
+      //     case 'P':
+      //     case 'Q':
+      //     case 'R':
+      //     case 'S':
+      //     case 'T':
+      //     case 'U':
+      //     case 'V':
+      //     case 'X':
+      //     case 'Y':
+      //       if (bs & 1)
+      //         --dst;
+      //     default:
+      //       bs = 0;
+      //       break;
+      //     }
+      //   }
+      //   rb_str_set_len(str, dst - ptr);
+      // }
+      v = r_entry0(mrb, mrb_funcall_id(mrb, mrb_obj_value(path_find_class(mrb, REGEXP_CLASS)), MRB_SYM(compile), 2, str, mrb_fixnum_value(options)), idx, arg);
+      v = r_leave(mrb, v, arg);
+    }
+    break;
 
   case TYPE_ARRAY:
   {
@@ -615,7 +627,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
     volatile long i; /* gcc 2.7.2.3 -O2 bug?? */
     mrb_sym slot;
     mrb_int idx = r_prepare(mrb, arg);
-    struct RClass *klass = mrb_class_get(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
+    struct RClass *klass = path_find_class(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
     long len = r_long(mrb, arg);
 
     v = mrb_instance_alloc(mrb, mrb_obj_value(klass));
@@ -648,7 +660,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
   case TYPE_USERDEF:
   {
-    struct RClass *klass = mrb_class_get(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
+    struct RClass *klass = path_find_class(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
     mrb_value data;
 
     if (!mrb_respond_to(mrb, mrb_obj_value(klass), s_load))
@@ -670,7 +682,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
   case TYPE_USRMARSHAL:
   {
-    struct RClass *klass = mrb_class_get(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
+    struct RClass *klass = path_find_class(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
     mrb_value data;
 
     v = mrb_instance_alloc(mrb, mrb_obj_value(klass));
@@ -711,7 +723,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
   case TYPE_DATA:
   {
-    struct RClass *klass = mrb_class_get(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
+    struct RClass *klass = path_find_class(mrb, RSTRING_CSTR(mrb, r_unique(mrb, arg)));
     if (mrb_respond_to(mrb, mrb_obj_value(klass), s_alloc))
     {
       static int warn = TRUE;
@@ -746,7 +758,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
   {
     volatile mrb_value str = r_bytes(mrb, arg);
 
-    v = mrb_obj_value(mrb_class_get(mrb, RSTRING_CSTR(mrb, str)));
+    v = mrb_obj_value(path_find_class(mrb, RSTRING_CSTR(mrb, str)));
     v = r_entry(mrb, v, arg);
     v = r_leave(mrb, v, arg);
   }
@@ -756,7 +768,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
   {
     volatile mrb_value str = r_bytes(mrb, arg);
 
-    v = mrb_obj_value(mrb_class_get(mrb, RSTRING_CSTR(mrb, str)));
+    v = mrb_obj_value(path_find_class(mrb, RSTRING_CSTR(mrb, str)));
     v = r_entry(mrb, v, arg);
     v = r_leave(mrb, v, arg);
   }
