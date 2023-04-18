@@ -584,21 +584,43 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
   }
 }
 
+static void 
+clear_dump_arg(mrb_state *mrb, struct dump_arg *arg)
+{
+  if (arg->symbols)
+    kh_destroy(symbol_dump_table, mrb, arg->symbols);
+  if (arg->data)
+    kh_destroy(object_dump_table, mrb, arg->data);
+  arg->symbols = NULL;
+  arg->data = NULL;
+}
+
+#include <mruby/data.h>
+
+static void
+free_dump_arg(mrb_state *mrb, void *ud)
+{
+  clear_dump_arg(mrb, (struct dump_arg *) ud);
+  mrb_free(mrb, ud);
+}
+
+static mrb_data_type _mrb_dump_arg = { "Marshal::DumpARG", free_dump_arg };
+
 void mrb_marshal_dump(mrb_state *mrb, mrb_value obj, mrb_marshal_writer_t writer, mrb_value target, int limit)
 {
-  struct dump_arg arg; // TODO: needs gc protection
-  arg.dest = target;
-  arg.position = 0;
-  arg.writer = writer;
-  arg.symbols = kh_init(symbol_dump_table, mrb);
-  arg.data = kh_init(object_dump_table, mrb);
+  struct dump_arg *arg;
+  struct RData *wrapper;
+  Data_Make_Struct(mrb, mrb->object_class, struct dump_arg, &_mrb_dump_arg, arg, wrapper);
+  arg->dest = target;
+  arg->position = 0;
+  arg->writer = writer;
+  arg->symbols = kh_init(symbol_dump_table, mrb);
+  arg->data = kh_init(object_dump_table, mrb);
+  arg->regexp_class = mrb_const_defined(mrb, mrb_obj_value(mrb->object_class), mrb_intern_cstr(mrb, REGEXP_CLASS)) ? mrb_class_get(mrb, REGEXP_CLASS) : NULL;
 
-  arg.regexp_class = mrb_const_defined(mrb, mrb_obj_value(mrb->object_class), mrb_intern_cstr(mrb, REGEXP_CLASS)) ? mrb_class_get(mrb, REGEXP_CLASS) : NULL;
+  w_byte(mrb, MARSHAL_MAJOR, arg);
+  w_byte(mrb, MARSHAL_MINOR, arg);
+  w_object(mrb, obj, arg, limit);
 
-  w_byte(mrb, MARSHAL_MAJOR, &arg);
-  w_byte(mrb, MARSHAL_MINOR, &arg);
-  w_object(mrb, obj, &arg, limit);
-
-  kh_destroy(symbol_dump_table, mrb, arg.symbols);
-  kh_destroy(object_dump_table, mrb, arg.data);
+  clear_dump_arg(mrb, arg);
 }

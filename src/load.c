@@ -817,37 +817,54 @@ r_object(mrb_state *mrb, struct load_arg *arg)
 static void
 clear_load_arg(mrb_state *mrb, struct load_arg *arg)
 {
-  kh_destroy(symbol_load_table, mrb, arg->symbols);
-  kh_destroy(object_load_table, mrb, arg->data);
+  if (arg->symbols)
+    kh_destroy(symbol_load_table, mrb, arg->symbols);
+  if (arg->data)
+    kh_destroy(object_load_table, mrb, arg->data);
+  arg->symbols = NULL;
+  arg->data = NULL;
 }
+
+#include <mruby/data.h>
+
+static void
+free_load_arg(mrb_state *mrb, void *ud)
+{
+  clear_load_arg(mrb, (struct load_arg *) ud);
+  mrb_free(mrb, ud);
+}
+
+static mrb_data_type _mrb_load_arg = { "Marshal::LoadARG", free_load_arg };
 
 mrb_value mrb_marshal_load(mrb_state *mrb, mrb_marshal_reader_t reader, mrb_value source)
 {
-  struct load_arg arg; // TODO: needs gc protection
-  arg.src = source;
-  arg.position = 0;
-  arg.reader = reader;
-  arg.symbols = kh_init(symbol_load_table, mrb);
-  arg.data = kh_init(object_load_table, mrb);
-  arg.proc = NULL;
+  struct load_arg *arg;
+  struct RData *wrapper;
+  Data_Make_Struct(mrb, mrb->object_class, struct load_arg, &_mrb_load_arg, arg, wrapper);
+  arg->src = source;
+  arg->position = 0;
+  arg->reader = reader;
+  arg->symbols = kh_init(symbol_load_table, mrb);
+  arg->data = kh_init(object_load_table, mrb);
+  arg->proc = NULL;
 
   mrb_value v;
 
   int major, minor;
 
-  major = r_byte(mrb, &arg);
-  minor = r_byte(mrb, &arg);
+  major = r_byte(mrb, arg);
+  minor = r_byte(mrb, arg);
 
   if (major != MARSHAL_MAJOR || minor > MARSHAL_MINOR)
   {
-    clear_load_arg(mrb, &arg);
+    clear_load_arg(mrb, arg);
     mrb_raisef(mrb, E_TYPE_ERROR, "incompatible marshal file format (can't be read)\n\
 \tformat version %d.%d required; %d.%d given",
                MARSHAL_MAJOR, MARSHAL_MINOR, major, minor);
   }
 
-  v = r_object(mrb, &arg);
-  clear_load_arg(mrb, &arg);
+  v = r_object(mrb, arg);
+  clear_load_arg(mrb, arg);
 
   return v;
 }
