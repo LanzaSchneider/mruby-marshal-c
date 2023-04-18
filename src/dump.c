@@ -8,6 +8,7 @@
 #include <mruby/array.h>
 #include <mruby/hash.h>
 #include <mruby/object.h>
+#include <mruby/re.h>
 
 #include <mruby/presym.h>
 
@@ -30,6 +31,8 @@ struct dump_arg
 
   kh_symbol_dump_table_t *symbols;
   kh_object_dump_table_t *data;
+
+  struct RClass *regexp_class;
 };
 
 struct dump_call_arg
@@ -318,7 +321,7 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
   struct iv_tbl *ivtbl = NULL;
 
   int hasiv = 0;
-#define has_ivars(obj, ivtbl) FALSE// (mrb_object_p(obj) && (ivtbl = mrb_obj_ptr(obj)->iv))
+#define has_ivars(obj, ivtbl) FALSE // (mrb_object_p(obj) && (ivtbl = mrb_obj_ptr(obj)->iv))
 
   if (limit == 0)
   {
@@ -432,135 +435,148 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
     if (hasiv)
       w_byte(mrb, TYPE_IVAR, arg);
 
-    switch (mrb_type(obj))
+    if (arg->regexp_class && mrb_obj_class(mrb, obj) == arg->regexp_class)
     {
-    case MRB_TT_CLASS:
-      // singleton check ?!
-      // if (FL_)
-      // {
-      //   rb_raise(rb_eTypeError, "singleton class can't be dumped");
-      // }
-      w_byte(mrb, TYPE_CLASS, arg);
+      w_uclass(mrb, obj, arg->regexp_class, arg);
+      w_byte(mrb, TYPE_REGEXP, arg);
       {
-        volatile mrb_value path = mrb_class_path(mrb, (struct RClass *)mrb_obj_ptr(obj));
-        w_bytes(mrb, RSTRING_PTR(path), RSTRING_LEN(path), arg);
+        mrb_value src = mrb_funcall_id(mrb, obj, MRB_SYM(source), 0);
+        int opts = mrb_as_int(mrb, mrb_funcall_id(mrb, obj, MRB_SYM(options), 0));
+        mrb_ensure_string_type(mrb, src);
+        w_bytes(mrb, RSTRING_PTR(src), RSTRING_LEN(src), arg);
+        w_byte(mrb, (char)opts, arg);
       }
-      break;
-
-    case MRB_TT_MODULE:
-      w_byte(mrb, TYPE_MODULE, arg);
+    }
+    else
+      switch (mrb_type(obj))
       {
-        volatile mrb_value path = mrb_class_path(mrb, (struct RClass *)mrb_obj_ptr(obj));
-        w_bytes(mrb, RSTRING_PTR(path), RSTRING_LEN(path), arg);
-      }
-      break;
-
-    case MRB_TT_FLOAT:
-      w_byte(mrb, TYPE_FLOAT, arg);
-      w_float(mrb, mrb_float(obj), arg);
-      break;
-
-    case MRB_TT_STRING:
-      w_uclass(mrb, obj, mrb->string_class, arg);
-      w_byte(mrb, TYPE_STRING, arg);
-      w_bytes(mrb, RSTRING_PTR(obj), RSTRING_LEN(obj), arg);
-      break;
-
-      // case T_REGEXP:
-      //   w_uclass(mrb, obj, rb_cRegexp, arg);
-      //   w_byte(mrb, TYPE_REGEXP, arg);
-      //   {
-      //     int opts = rb_reg_options(obj);
-      //     w_bytes(mrb, RREGEXP_SRC_PTR(obj), RREGEXP_SRC_LEN(obj), arg);
-      //     w_byte(mrb, (char)opts, arg);
-      //   }
-      //   break;
-
-    case MRB_TT_ARRAY:
-      w_uclass(mrb, obj, mrb->array_class, arg);
-      w_byte(mrb, TYPE_ARRAY, arg);
-      {
-        long i, len = RARRAY_LEN(obj);
-
-        w_long(mrb, len, arg);
-        for (i = 0; i < RARRAY_LEN(obj); i++)
+      case MRB_TT_CLASS:
+        // singleton check ?!
+        // if (FL_)
+        // {
+        //   rb_raise(rb_eTypeError, "singleton class can't be dumped");
+        // }
+        w_byte(mrb, TYPE_CLASS, arg);
         {
-          w_object(mrb, RARRAY_PTR(obj)[i], arg, limit);
-          if (len != RARRAY_LEN(obj))
+          volatile mrb_value path = mrb_class_path(mrb, (struct RClass *)mrb_obj_ptr(obj));
+          w_bytes(mrb, RSTRING_PTR(path), RSTRING_LEN(path), arg);
+        }
+        break;
+
+      case MRB_TT_MODULE:
+        w_byte(mrb, TYPE_MODULE, arg);
+        {
+          volatile mrb_value path = mrb_class_path(mrb, (struct RClass *)mrb_obj_ptr(obj));
+          w_bytes(mrb, RSTRING_PTR(path), RSTRING_LEN(path), arg);
+        }
+        break;
+
+      case MRB_TT_FLOAT:
+        w_byte(mrb, TYPE_FLOAT, arg);
+        w_float(mrb, mrb_float(obj), arg);
+        break;
+
+      case MRB_TT_STRING:
+        w_uclass(mrb, obj, mrb->string_class, arg);
+        w_byte(mrb, TYPE_STRING, arg);
+        w_bytes(mrb, RSTRING_PTR(obj), RSTRING_LEN(obj), arg);
+        break;
+
+        // case TT_REGEXP:
+        //   w_uclass(mrb, obj, rb_cRegexp, arg);
+        //   w_byte(mrb, TYPE_REGEXP, arg);
+        //   {
+        //     int opts = rb_reg_options(obj);
+        //     w_bytes(mrb, RREGEXP_SRC_PTR(obj), RREGEXP_SRC_LEN(obj), arg);
+        //     w_byte(mrb, (char)opts, arg);
+        //   }
+        //   break;
+
+      case MRB_TT_ARRAY:
+        w_uclass(mrb, obj, mrb->array_class, arg);
+        w_byte(mrb, TYPE_ARRAY, arg);
+        {
+          long i, len = RARRAY_LEN(obj);
+
+          w_long(mrb, len, arg);
+          for (i = 0; i < RARRAY_LEN(obj); i++)
           {
-            mrb_raise(mrb, E_RUNTIME_ERROR, "array modified during dump");
+            w_object(mrb, RARRAY_PTR(obj)[i], arg, limit);
+            if (len != RARRAY_LEN(obj))
+            {
+              mrb_raise(mrb, E_RUNTIME_ERROR, "array modified during dump");
+            }
           }
         }
-      }
-      break;
+        break;
 
-    case MRB_TT_HASH:
-      w_uclass(mrb, obj, mrb->hash_class, arg);
-      if (!MRB_RHASH_DEFAULT_P(obj))
-      {
-        w_byte(mrb, TYPE_HASH, arg);
-      }
-      else if (MRB_RHASH_PROCDEFAULT_P(obj))
-      {
-        mrb_raise(mrb, E_TYPE_ERROR, "can't dump hash with default proc");
-      }
-      else
-      {
-        w_byte(mrb, TYPE_HASH_DEF, arg);
-      }
-      w_long(mrb, mrb_hash_size(mrb, obj), arg);
-      mrb_hash_foreach(mrb, mrb_hash_ptr(obj), hash_each, &c_arg);
-      if (MRB_RHASH_DEFAULT_P(obj))
-      {
-        mrb_raise(mrb, E_TYPE_ERROR, "can't dump hash with default");
-        // w_object(mrb, RHASH_IFNONE(obj), arg, limit);
-      }
-      break;
+      case MRB_TT_HASH:
+        w_uclass(mrb, obj, mrb->hash_class, arg);
+        if (!MRB_RHASH_DEFAULT_P(obj))
+        {
+          w_byte(mrb, TYPE_HASH, arg);
+        }
+        else if (MRB_RHASH_PROCDEFAULT_P(obj))
+        {
+          mrb_raise(mrb, E_TYPE_ERROR, "can't dump hash with default proc");
+        }
+        else
+        {
+          w_byte(mrb, TYPE_HASH_DEF, arg);
+        }
+        w_long(mrb, mrb_hash_size(mrb, obj), arg);
+        mrb_hash_foreach(mrb, mrb_hash_ptr(obj), hash_each, &c_arg);
+        if (MRB_RHASH_DEFAULT_P(obj))
+        {
+          mrb_raise(mrb, E_TYPE_ERROR, "can't dump hash with default");
+          // w_object(mrb, RHASH_IFNONE(obj), arg, limit);
+        }
+        break;
 
-    case MRB_TT_STRUCT:
-      w_class(mrb, TYPE_STRUCT, obj, arg, TRUE);
-      {
+      case MRB_TT_STRUCT:
+        w_class(mrb, TYPE_STRUCT, obj, arg, TRUE);
+        {
 #define RSTRUCT_LEN(st) RARRAY_LEN(st)
 #define RSTRUCT_PTR(st) RARRAY_PTR(st)
-        long len = RSTRUCT_LEN(obj);
-        mrb_value mem;
-        long i;
-        w_long(mrb, len, arg);
-        mem = mrb_funcall_id(mrb, obj, MRB_SYM(members), 0); // rb_struct_members(obj);
-        for (i = 0; i < len; i++)
-        {
-          w_symbol(mrb, mrb_symbol(RARRAY_PTR(mem)[i]), arg);
-          w_object(mrb, RSTRUCT_PTR(obj)[i], arg, limit);
-        }
+          long len = RSTRUCT_LEN(obj);
+          mrb_value mem;
+          long i;
+          w_long(mrb, len, arg);
+          mem = mrb_funcall_id(mrb, obj, MRB_SYM(members), 0); // rb_struct_members(obj);
+          for (i = 0; i < len; i++)
+          {
+            w_symbol(mrb, mrb_symbol(RARRAY_PTR(mem)[i]), arg);
+            w_object(mrb, RSTRUCT_PTR(obj)[i], arg, limit);
+          }
 #undef RSTRUCT_LEN
 #undef RSTRUCT_PTR
-      }
-      break;
+        }
+        break;
 
-    case MRB_TT_OBJECT:
-      w_class(mrb, TYPE_OBJECT, obj, arg, TRUE);
-      w_objivar(mrb, obj, &c_arg);
-      break;
+      case MRB_TT_OBJECT:
+        w_class(mrb, TYPE_OBJECT, obj, arg, TRUE);
+        w_objivar(mrb, obj, &c_arg);
+        break;
 
-    case MRB_TT_DATA:
-    {
-      mrb_value v;
-
-      if (!mrb_respond_to(mrb, obj, s_dump_data))
+      case MRB_TT_DATA:
       {
-        mrb_raisef(mrb, E_TYPE_ERROR, "no _dump_data is defined for class %s", mrb_obj_classname(mrb, obj));
-      }
-      v = mrb_funcall_id(mrb, obj, s_dump_data, 0);
-      check_dump_arg(mrb, arg, s_dump_data);
-      w_class(mrb, TYPE_DATA, obj, arg, TRUE);
-      w_object(mrb, v, arg, limit);
-    }
-    break;
+        mrb_value v;
 
-    default:
-      mrb_raisef(mrb, E_TYPE_ERROR, "can't dump %s", mrb_obj_classname(mrb, obj));
+        if (!mrb_respond_to(mrb, obj, s_dump_data))
+        {
+          mrb_raisef(mrb, E_TYPE_ERROR, "no _dump_data is defined for class %s", mrb_obj_classname(mrb, obj));
+        }
+        v = mrb_funcall_id(mrb, obj, s_dump_data, 0);
+        check_dump_arg(mrb, arg, s_dump_data);
+        w_class(mrb, TYPE_DATA, obj, arg, TRUE);
+        w_object(mrb, v, arg, limit);
+      }
       break;
-    }
+
+      default:
+        mrb_raisef(mrb, E_TYPE_ERROR, "can't dump %s", mrb_obj_classname(mrb, obj));
+        break;
+      }
   }
   if (hasiv)
   {
@@ -576,6 +592,8 @@ void mrb_marshal_dump(mrb_state *mrb, mrb_value obj, mrb_marshal_writer_t writer
   arg.writer = writer;
   arg.symbols = kh_init(symbol_dump_table, mrb);
   arg.data = kh_init(object_dump_table, mrb);
+
+  arg.regexp_class = mrb_const_defined(mrb, mrb_obj_value(mrb->object_class), mrb_intern_cstr(mrb, REGEXP_CLASS)) ? mrb_class_get(mrb, REGEXP_CLASS) : NULL;
 
   w_byte(mrb, MARSHAL_MAJOR, &arg);
   w_byte(mrb, MARSHAL_MINOR, &arg);
