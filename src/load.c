@@ -60,9 +60,9 @@ r_prepare(mrb_state *mrb, struct load_arg *arg)
 static int
 r_byte(mrb_state *mrb, struct load_arg *arg)
 {
-  int8_t c;
+  uint8_t c;
   mrb_uint len = arg->reader(mrb, arg->src, &c, sizeof(c), arg->position);
-  if (!len)
+  if (!len || (len != sizeof(c)))
     mrb_raise(mrb, E_ARGUMENT_ERROR, "marshal data too short"); // TODO: EOF ERROR
   arg->position += len;
   return c;
@@ -95,7 +95,7 @@ r_long(mrb_state *mrb, struct load_arg *arg)
     x = 0;
     for (i = 0; i < c; i++)
     {
-      x |= (long)r_byte(mrb, arg) << (8 * i);
+      x |= (long) r_byte(mrb, arg) << (8 * i);
     }
   }
   else
@@ -123,16 +123,39 @@ static mrb_value
 r_bytes0(mrb_state *mrb, long len, struct load_arg *arg)
 {
   mrb_value buf;
-  mrb_uint buf_len;
+  mrb_int buf_len;
   if (len == 0)
     return mrb_str_new_cstr(mrb, "");
   buf = mrb_str_buf_new(mrb, len);
   buf_len = arg->reader(mrb, arg->src, RSTRING_PTR(buf), len, arg->position);
-  if (!buf_len)
+  if (!buf_len || (buf_len != len))
     mrb_raise(mrb, E_ARGUMENT_ERROR, "marshal data too short"); // TODO: EOF ERROR
   arg->position += len;
   mrb_str_resize(mrb, buf, buf_len);
   return buf;
+}
+
+#define ENCODING_ASCII 0
+#define ENCODING_UTF_8 1
+
+static int
+id2encidx(mrb_state *mrb, mrb_sym id, mrb_value val)
+{
+  // if (id == rb_id_encoding())
+  // {
+  //   int idx = rb_enc_find_index(StringValueCStr(val));
+  //   return idx;
+  // }
+  // else
+  if (id == mrb_intern_lit(mrb, "E"))
+  {
+    if (mrb_false_p(val))
+      return ENCODING_ASCII; // return rb_usascii_encindex();
+    else if (mrb_true_p(val))
+      return ENCODING_UTF_8; // return rb_utf8_encindex();
+    /* bogus ignore */
+  }
+  return -1;
 }
 
 static mrb_sym
@@ -157,7 +180,7 @@ r_symreal(mrb_state *mrb, struct load_arg *arg, int ivar)
 {
   volatile mrb_value s = r_bytes(mrb, arg);
   mrb_sym id;
-  // int idx = -1;
+  int idx = -1;
   mrb_int n = kh_size(arg->symbols);
 
   khint_t x = kh_put(symbol_load_table, mrb, arg->symbols, n);
@@ -168,11 +191,11 @@ r_symreal(mrb_state *mrb, struct load_arg *arg, int ivar)
     while (num-- > 0)
     {
       id = r_symbol(mrb, arg);
-      // idx = id2encidx(id, r_object(arg));
+      idx = id2encidx(mrb, id, r_object(mrb, arg));
     }
   }
-  // if (idx < 0)
-  // idx = rb_usascii_encindex();
+  if (idx < 0)
+    idx = ENCODING_ASCII;
   // rb_enc_associate_index(s, idx);
   id = mrb_intern_str(mrb, s);
   kh_value(arg->symbols, x) = id;
@@ -267,18 +290,17 @@ r_ivar(mrb_state *mrb, mrb_value obj, int *has_encoding, struct load_arg *arg)
     {
       mrb_sym id = r_symbol(mrb, arg);
       mrb_value val = r_object(mrb, arg);
-      // int idx = id2encidx(id, val);
-      // if (idx >= 0)
-      // {
-      //   rb_enc_associate_index(obj, idx);
-      //   if (has_encoding)
-      //     *has_encoding = TRUE;
-      // }
-      // else
-      // {
-      mrb_iv_set(mrb, obj, id, val);
-      //   rb_ivar_set(obj, id, val);
-      // }
+      int idx = id2encidx(mrb, id, val);
+      if (idx >= 0)
+      {
+        // rb_enc_associate_index(obj, idx);
+        if (has_encoding)
+          *has_encoding = TRUE;
+      }
+      else
+      {
+        mrb_iv_set(mrb, obj, id, val);
+      }
       mrb_gc_arena_restore(mrb, ai);
     } while (--len > 0);
   }
@@ -294,19 +316,23 @@ mrb_instance_alloc(mrb_state *mrb, mrb_value cv)
   if (c->tt == MRB_TT_SCLASS)
     mrb_raise(mrb, E_TYPE_ERROR, "can't create instance of singleton class");
 
-  if (c == mrb->nil_class || c == mrb->false_class) {
+  if (c == mrb->nil_class || c == mrb->false_class)
+  {
     mrb_assert(ttype == 0);
   }
-  else if (ttype == 0) {
+  else if (ttype == 0)
+  {
     ttype = MRB_TT_OBJECT;
   }
-  if (ttype <= MRB_TT_CPTR) {
-    if (ttype == MRB_TT_UNDEF) {
+  if (ttype <= MRB_TT_CPTR)
+  {
+    if (ttype == MRB_TT_UNDEF)
+    {
       mrb_raisef(mrb, E_TYPE_ERROR, "allocator undefined for %v", cv);
     }
     mrb_raisef(mrb, E_TYPE_ERROR, "can't create instance of %v", cv);
   }
-  o = (struct RObject*)mrb_obj_alloc(mrb, ttype, c);
+  o = (struct RObject *)mrb_obj_alloc(mrb, ttype, c);
   return mrb_obj_value(o);
 }
 
@@ -520,74 +546,74 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
     v = r_leave(mrb, v, arg);
     break;
 
-    case TYPE_REGEXP:
-    {
-      volatile mrb_value str = r_bytes(mrb, arg);
-      int options = r_byte(mrb, arg);
-      int has_encoding = FALSE;
-      mrb_int idx = r_prepare(mrb, arg);
+  case TYPE_REGEXP:
+  {
+    volatile mrb_value str = r_bytes(mrb, arg);
+    int options = r_byte(mrb, arg);
+    int has_encoding = FALSE;
+    mrb_int idx = r_prepare(mrb, arg);
 
-      if (ivp)
-      {
-        r_ivar(mrb, str, &has_encoding, arg);
-        *ivp = FALSE;
-      }
-      // if (!has_encoding)
-      // {
-      //   /* 1.8 compatibility; remove escapes undefined in 1.8 */
-      //   char *ptr = RSTRING_PTR(str), *dst = ptr, *src = ptr;
-      //   long len = RSTRING_LEN(str);
-      //   long bs = 0;
-      //   for (; len-- > 0; *dst++ = *src++)
-      //   {
-      //     switch (*src)
-      //     {
-      //     case '\\':
-      //       bs++;
-      //       break;
-      //     case 'g':
-      //     case 'h':
-      //     case 'i':
-      //     case 'j':
-      //     case 'k':
-      //     case 'l':
-      //     case 'm':
-      //     case 'o':
-      //     case 'p':
-      //     case 'q':
-      //     case 'u':
-      //     case 'y':
-      //     case 'E':
-      //     case 'F':
-      //     case 'H':
-      //     case 'I':
-      //     case 'J':
-      //     case 'K':
-      //     case 'L':
-      //     case 'N':
-      //     case 'O':
-      //     case 'P':
-      //     case 'Q':
-      //     case 'R':
-      //     case 'S':
-      //     case 'T':
-      //     case 'U':
-      //     case 'V':
-      //     case 'X':
-      //     case 'Y':
-      //       if (bs & 1)
-      //         --dst;
-      //     default:
-      //       bs = 0;
-      //       break;
-      //     }
-      //   }
-      //   rb_str_set_len(str, dst - ptr);
-      // }
-      v = r_entry0(mrb, mrb_funcall_id(mrb, mrb_obj_value(path_find_class(mrb, REGEXP_CLASS)), MRB_SYM(compile), 2, str, mrb_fixnum_value(options)), idx, arg);
-      v = r_leave(mrb, v, arg);
+    if (ivp)
+    {
+      r_ivar(mrb, str, &has_encoding, arg);
+      *ivp = FALSE;
     }
-    break;
+    // if (!has_encoding)
+    // {
+    //   /* 1.8 compatibility; remove escapes undefined in 1.8 */
+    //   char *ptr = RSTRING_PTR(str), *dst = ptr, *src = ptr;
+    //   long len = RSTRING_LEN(str);
+    //   long bs = 0;
+    //   for (; len-- > 0; *dst++ = *src++)
+    //   {
+    //     switch (*src)
+    //     {
+    //     case '\\':
+    //       bs++;
+    //       break;
+    //     case 'g':
+    //     case 'h':
+    //     case 'i':
+    //     case 'j':
+    //     case 'k':
+    //     case 'l':
+    //     case 'm':
+    //     case 'o':
+    //     case 'p':
+    //     case 'q':
+    //     case 'u':
+    //     case 'y':
+    //     case 'E':
+    //     case 'F':
+    //     case 'H':
+    //     case 'I':
+    //     case 'J':
+    //     case 'K':
+    //     case 'L':
+    //     case 'N':
+    //     case 'O':
+    //     case 'P':
+    //     case 'Q':
+    //     case 'R':
+    //     case 'S':
+    //     case 'T':
+    //     case 'U':
+    //     case 'V':
+    //     case 'X':
+    //     case 'Y':
+    //       if (bs & 1)
+    //         --dst;
+    //     default:
+    //       bs = 0;
+    //       break;
+    //     }
+    //   }
+    //   rb_str_set_len(str, dst - ptr);
+    // }
+    v = r_entry0(mrb, mrb_funcall_id(mrb, mrb_obj_value(path_find_class(mrb, REGEXP_CLASS)), MRB_SYM(compile), 2, str, mrb_fixnum_value(options)), idx, arg);
+    v = r_leave(mrb, v, arg);
+  }
+  break;
 
   case TYPE_ARRAY:
   {
@@ -721,7 +747,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
   {
     mrb_int idx = r_prepare(mrb, arg);
     v = obj_alloc_by_path(mrb, r_unique(mrb, arg), arg);
-    if (!mrb_object_p(v))
+    if (mrb_type(v) != MRB_TT_OBJECT)
     {
       mrb_raise(mrb, E_ARGUMENT_ERROR, "dump format error");
     }
@@ -840,11 +866,11 @@ clear_load_arg(mrb_state *mrb, struct load_arg *arg)
 static void
 free_load_arg(mrb_state *mrb, void *ud)
 {
-  clear_load_arg(mrb, (struct load_arg *) ud);
+  clear_load_arg(mrb, (struct load_arg *)ud);
   mrb_free(mrb, ud);
 }
 
-static mrb_data_type _mrb_load_arg = { "Marshal::LoadARG", free_load_arg };
+static mrb_data_type _mrb_load_arg = {"Marshal::LoadARG", free_load_arg};
 
 mrb_value mrb_marshal_load(mrb_state *mrb, mrb_marshal_reader_t reader, mrb_value source)
 {

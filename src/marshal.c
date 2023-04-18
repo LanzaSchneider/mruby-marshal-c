@@ -8,8 +8,8 @@
 #include "common.h"
 #include <string.h>
 
-static mrb_uint
-_writer_string(mrb_state *mrb, const void *src, mrb_uint size, mrb_value dest, mrb_uint position)
+static int
+_writer_string(mrb_state *mrb, const void *src, int size, mrb_value dest, mrb_uint position)
 {
   int ai = mrb_gc_arena_save(mrb);
   mrb_str_buf_cat(mrb, dest, (const char *)src, (size_t)size);
@@ -17,11 +17,11 @@ _writer_string(mrb_state *mrb, const void *src, mrb_uint size, mrb_value dest, m
   return size;
 }
 
-static mrb_uint
-_writer_io(mrb_state *mrb, const void *src, mrb_uint size, mrb_value dest, mrb_uint position)
+static int
+_writer_io(mrb_state *mrb, const void *src, int size, mrb_value dest, mrb_uint position)
 {
   int ai = mrb_gc_arena_save(mrb);
-  mrb_int written = mrb_as_int(mrb, mrb_funcall_id(mrb, dest, MRB_SYM(write), 1, mrb_str_new(mrb, (const char *)src, size)));
+  int written = mrb_as_int(mrb, mrb_funcall_id(mrb, dest, s_write, 1, mrb_str_new(mrb, (const char *)src, size)));
   mrb_gc_arena_restore(mrb, ai);
   return written;
 }
@@ -50,25 +50,29 @@ mrb_mruby_marshal_dump(mrb_state *mrb, mrb_value self)
   }
 }
 
-static mrb_uint
-_reader_string(mrb_state *mrb, mrb_value src, void *dest, mrb_uint size, mrb_uint position)
+static int
+_reader_string(mrb_state *mrb, mrb_value src, void *dest, int size, mrb_uint position)
 {
-  mrb_int remain = RSTRING_LEN(src) - position;
+  int remain = RSTRING_LEN(src) - position;
+  if (size < 0)
+  {
+    mrb_raisef(mrb, E_ARGUMENT_ERROR, "negative length %d given", size);
+  }
   if (remain > 0)
   {
-    mrb_uint len = remain < size ? remain : size;
+    int len = remain < size ? remain : size;
     memcpy(dest, RSTRING_PTR(src) + position, len);
     return len;
   }
   return 0;
 }
 
-static mrb_uint
-_reader_io(mrb_state *mrb, mrb_value src, void *dest, mrb_uint size, mrb_uint position)
+static int
+_reader_io(mrb_state *mrb, mrb_value src, void *dest, int size, mrb_uint position)
 {
   int ai = mrb_gc_arena_save(mrb);
-  mrb_value buf = mrb_funcall_id(mrb, src, MRB_SYM(read), 1, mrb_fixnum_value(size));
-  mrb_int buf_len = 0;
+  mrb_value buf = mrb_funcall_id(mrb, src, s_read, 1, mrb_fixnum_value(size));
+  int buf_len = 0;
   if (mrb_string_p(buf))
   {
     memcpy(dest, RSTRING_PTR(buf), RSTRING_LEN(buf));

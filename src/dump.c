@@ -268,7 +268,7 @@ w_obj_each(mrb_state *mrb, mrb_sym id, mrb_value value, void *ud)
   int ai = mrb_gc_arena_save(mrb);
   struct dump_call_arg *arg = (struct dump_call_arg *)ud;
   // if (id == mrb_id_encoding()) return;
-  if (id == mrb_intern_cstr(mrb, "E"))
+  if (id == mrb_intern_lit(mrb, "E"))
   {
     mrb_gc_arena_restore(mrb, ai);
     return 0; // continue
