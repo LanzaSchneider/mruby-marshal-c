@@ -196,10 +196,14 @@ w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg)
     }
   }
 
+  int ai = mrb_gc_arena_save(mrb);
+
   mrb_value sym = mrb_sym_str(mrb, id);
 
   w_byte(mrb, TYPE_SYMBOL, arg);
   w_bytes(mrb, RSTRING_PTR(sym), RSTRING_LEN(sym), arg);
+
+  mrb_gc_arena_restore(mrb, ai);
 
   kh_value(arg->symbols, kh_put(symbol_dump_table, mrb, arg->symbols, id)) = kh_size(arg->symbols);
 }
@@ -207,8 +211,10 @@ w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg)
 static void
 w_unique(mrb_state *mrb, mrb_value s, struct dump_arg *arg)
 {
+  int ai = mrb_gc_arena_save(mrb);
   // TODO: must_not_be_anonymous("class", s);
   w_symbol(mrb, mrb_intern_str(mrb, s), arg);
+  mrb_gc_arena_restore(mrb, ai);
 }
 
 static void w_object(mrb_state *, mrb_value, struct dump_arg *, int);
@@ -228,16 +234,22 @@ w_class(mrb_state *mrb, char type, mrb_value obj, struct dump_arg *arg, int chec
   mrb_value path;
   struct RClass *klass;
 
+  int ai = mrb_gc_arena_save(mrb);
+
   klass = mrb_obj_class(mrb, obj);
   // TODO: w_extended(mrb, klass, arg, check);
   w_byte(mrb, type, arg);
   path = mrb_class_path(mrb, klass);
   w_unique(mrb, path, arg);
+
+  mrb_gc_arena_restore(mrb, ai);
 }
 
 static void
 w_uclass(mrb_state *mrb, mrb_value obj, struct RClass *super, struct dump_arg *arg)
 {
+  int ai = mrb_gc_arena_save(mrb);
+
   struct RClass *klass = mrb_obj_class(mrb, obj);
 
   // TODO: w_extended(mrb, klass, arg, TRUE);
@@ -246,17 +258,24 @@ w_uclass(mrb_state *mrb, mrb_value obj, struct RClass *super, struct dump_arg *a
     w_byte(mrb, TYPE_UCLASS, arg);
     w_unique(mrb, mrb_class_path(mrb, klass), arg);
   }
+
+  mrb_gc_arena_restore(mrb, ai);
 }
 
 static int
 w_obj_each(mrb_state *mrb, mrb_sym id, mrb_value value, void *ud)
 {
+  int ai = mrb_gc_arena_save(mrb);
   struct dump_call_arg *arg = (struct dump_call_arg *)ud;
   // if (id == mrb_id_encoding()) return;
   if (id == mrb_intern_cstr(mrb, "E"))
+  {
+    mrb_gc_arena_restore(mrb, ai);
     return 0; // continue
+  }
   w_symbol(mrb, id, arg->arg);
   w_object(mrb, value, arg->arg, arg->limit);
+  mrb_gc_arena_restore(mrb, ai);
   return 0; // continue
 }
 
@@ -341,6 +360,8 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
       return;
     }
   }
+
+  int ai = mrb_gc_arena_save(mrb);
 
   if (mrb_nil_p(obj))
   {
@@ -582,6 +603,8 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
   {
     w_ivar(mrb, obj, ivtbl, &c_arg);
   }
+
+  mrb_gc_arena_restore(mrb, ai);
 }
 
 static void 

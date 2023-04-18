@@ -258,6 +258,9 @@ r_ivar(mrb_state *mrb, mrb_value obj, int *has_encoding, struct load_arg *arg)
   long len;
 
   len = r_long(mrb, arg);
+
+  int ai = mrb_gc_arena_save(mrb);
+
   if (len > 0)
   {
     do
@@ -276,6 +279,7 @@ r_ivar(mrb_state *mrb, mrb_value obj, int *has_encoding, struct load_arg *arg)
       mrb_iv_set(mrb, obj, id, val);
       //   rb_ivar_set(obj, id, val);
       // }
+      mrb_gc_arena_restore(mrb, ai);
     } while (--len > 0);
   }
 }
@@ -591,9 +595,11 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
     v = mrb_ary_new_capa(mrb, len);
     v = r_entry(mrb, v, arg);
+    int ai = mrb_gc_arena_save(mrb);
     while (len--)
     {
       mrb_ary_push(mrb, v, r_object(mrb, arg));
+      mrb_gc_arena_restore(mrb, ai);
     }
     v = r_leave(mrb, v, arg);
   }
@@ -606,11 +612,13 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
     v = mrb_hash_new(mrb);
     v = r_entry(mrb, v, arg);
+    int ai = mrb_gc_arena_save(mrb);
     while (len--)
     {
       mrb_value key = r_object(mrb, arg);
       mrb_value value = r_object(mrb, arg);
       mrb_hash_set(mrb, v, key, value);
+      mrb_gc_arena_restore(mrb, ai);
     }
     if (type == TYPE_HASH_DEF)
     {
@@ -643,6 +651,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
 
     v = r_entry0(mrb, v, idx, arg);
     values = mrb_ary_new_capa(mrb, len);
+    int ai = mrb_gc_arena_save(mrb);
     for (i = 0; i < len; i++)
     {
       slot = r_symbol(mrb, arg);
@@ -652,6 +661,7 @@ r_object0(mrb_state *mrb, struct load_arg *arg, int *ivp, mrb_value extmod)
         mrb_raisef(mrb, E_TYPE_ERROR, "struct %s not compatible (:%s for :%s)", mrb_class_name(mrb, klass), mrb_sym_name(mrb, slot), mrb_sym_name(mrb, mrb_symbol(RARRAY_PTR(mem)[i])));
       }
       mrb_ary_push(mrb, values, r_object(mrb, arg));
+      mrb_gc_arena_restore(mrb, ai);
     }
     mrb_funcall_argv(mrb, v, MRB_SYM(initialize), len, RARRAY_PTR(values)); // rb_struct_initialize(v, values);
     v = r_leave(mrb, v, arg);
