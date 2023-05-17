@@ -50,7 +50,7 @@ Regexp = Class.new do
     @option
   end
 end unless Object.const_defined? :Regexp
-Struct::Pyramid = Struct.new
+Struct::Pyramid = Struct.new('Pyramid')
 
 assert('Marshal.load') do
   assert_equal Marshal.load("\x04\b0"), nil
