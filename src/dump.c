@@ -205,7 +205,9 @@ w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg)
 
   mrb_gc_arena_restore(mrb, ai);
 
-  kh_value(arg->symbols, kh_put(symbol_dump_table, mrb, arg->symbols, id)) = kh_size(arg->symbols);
+  khint_t cur_size = kh_size(arg->symbols);
+  khint_t new_idx = kh_put(symbol_dump_table, mrb, arg->symbols, id);
+  kh_value(arg->symbols, new_idx) = cur_size;
 }
 
 static void
@@ -404,7 +406,9 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
     {
       volatile mrb_value v;
 
-      kh_value(arg->data, kh_put(object_dump_table, mrb, arg->data, obj)) = kh_size(arg->data);
+      khint_t cur_size = kh_size(arg->data);
+      khint_t new_idx = kh_put(object_dump_table, mrb, arg->data, obj);
+      kh_value(arg->data, new_idx) = cur_size;
 
       v = mrb_funcall_id(mrb, obj, s_mdump, 0);
       check_dump_arg(mrb, arg, s_mdump);
@@ -446,11 +450,15 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
       {
         w_ivar(mrb, obj, ivtbl, &c_arg);
       }
-      kh_value(arg->data, kh_put(object_dump_table, mrb, arg->data, obj)) = kh_size(arg->data);
+      khint_t cur_size = kh_size(arg->data);
+      khint_t new_idx = kh_put(object_dump_table, mrb, arg->data, obj);
+      kh_value(arg->data, new_idx) = cur_size;
       return;
     }
 
-    kh_value(arg->data, kh_put(object_dump_table, mrb, arg->data, obj)) = kh_size(arg->data);
+    khint_t cur_size = kh_size(arg->data);
+    khint_t new_idx = kh_put(object_dump_table, mrb, arg->data, obj);
+    kh_value(arg->data, new_idx) = cur_size;
 
     hasiv = has_ivars(obj, ivtbl);
     if (hasiv)
