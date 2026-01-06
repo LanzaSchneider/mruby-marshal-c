@@ -30,26 +30,29 @@ class UserMarshal
   def ==(other) self.class === other and @data == other.data end
 end
 
-Regexp = Class.new do
-  attr_reader :source
-  def self.compile string = '', option = nil
-    self.new string, option
-  end
+class Regexp
+  unless respond_to?(:compile)
+    def self.compile string = '', option = nil
+      self.new string, option
+    end
 
-  def initialize string = '', option = nil
-    @source = string
-    @option = 0
-    @option = option if option.is_a? Fixnum
-  end
+    attr_reader :source
+    def initialize string = '', option = nil
+      @source = string
+      @option = 0
+      @option = option if option.is_a? Fixnum
+    end
 
-  def == other
-    [source, options] == [other.source, other.options]
-  end
+    def == other
+      [source, options] == [other.source, other.options]
+    end
 
-  def options
-    @option
+    def options
+      @option
+    end
   end
-end unless Object.const_defined? :Regexp
+end
+
 Struct::Pyramid = Struct.new('Pyramid')
 
 assert('Marshal.load') do

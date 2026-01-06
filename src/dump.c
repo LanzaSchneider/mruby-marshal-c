@@ -1,30 +1,32 @@
 #include <mruby.h>
-#include <mruby/value.h>
 #include <mruby/marshal.h>
+#include <mruby/value.h>
 
-#include <mruby/string.h>
-#include <mruby/variable.h>
-#include <mruby/class.h>
 #include <mruby/array.h>
+#include <mruby/class.h>
 #include <mruby/hash.h>
 #include <mruby/object.h>
 #include <mruby/re.h>
+#include <mruby/string.h>
+#include <mruby/variable.h>
 
 #include <mruby/presym.h>
 
-#include <string.h>
 #include "common.h"
+#include <string.h>
 
 #include <mruby/khash.h>
+
 KHASH_DECLARE(symbol_dump_table, mrb_sym, mrb_int, 1);
 KHASH_DECLARE(object_dump_table, mrb_value, mrb_int, 1);
 
 #define kh_mrb_value_hash_func(mrb, v) mrb_obj_id(v)
-KHASH_DEFINE(symbol_dump_table, mrb_sym, mrb_int, 1, kh_int_hash_func, kh_int_hash_equal);
-KHASH_DEFINE(object_dump_table, mrb_value, mrb_int, 1, kh_mrb_value_hash_func, mrb_equal);
+KHASH_DEFINE(symbol_dump_table, mrb_sym, mrb_int, 1, kh_int_hash_func,
+             kh_int_hash_equal);
+KHASH_DEFINE(object_dump_table, mrb_value, mrb_int, 1, kh_mrb_value_hash_func,
+             mrb_equal);
 
-struct dump_arg
-{
+struct dump_arg {
   mrb_value dest;
   mrb_uint position;
   mrb_marshal_writer_t writer;
@@ -35,147 +37,115 @@ struct dump_arg
   struct RClass *regexp_class;
 };
 
-struct dump_call_arg
-{
+struct dump_call_arg {
   // mrb_value obj;
   struct dump_arg *arg;
   int limit;
 };
 
-static void
-check_dump_arg(mrb_state *mrb, struct dump_arg *arg, mrb_sym sym)
-{
-  if (!arg->symbols)
-  {
-    mrb_raisef(mrb, E_RUNTIME_ERROR, "Marshal.dump reentered at %s", mrb_sym_name(mrb, sym));
+static void check_dump_arg(mrb_state *mrb, struct dump_arg *arg, mrb_sym sym) {
+  if (!arg->symbols) {
+    mrb_raisef(mrb, E_RUNTIME_ERROR, "Marshal.dump reentered at %s",
+               mrb_sym_name(mrb, sym));
   }
 }
 
 static void w_long(mrb_state *, long, struct dump_arg *);
 
-static void
-w_nbyte(mrb_state *mrb, const char *s, long n, struct dump_arg *arg)
-{
+static void w_nbyte(mrb_state *mrb, const char *s, long n,
+                    struct dump_arg *arg) {
   arg->position += arg->writer(mrb, s, n, arg->dest, arg->position);
 }
 
-static void
-w_byte(mrb_state *mrb, char c, struct dump_arg *arg)
-{
+static void w_byte(mrb_state *mrb, char c, struct dump_arg *arg) {
   w_nbyte(mrb, &c, 1, arg);
 }
 
-static void
-w_bytes(mrb_state *mrb, const char *s, long n, struct dump_arg *arg)
-{
+static void w_bytes(mrb_state *mrb, const char *s, long n,
+                    struct dump_arg *arg) {
   w_long(mrb, n, arg);
   w_nbyte(mrb, s, n, arg);
 }
 
 #define w_cstr(mrb, s, arg) w_bytes(mrb, (s), strlen(s), (arg))
 
-static void
-w_short(mrb_state *mrb, int x, struct dump_arg *arg)
-{
+static void w_short(mrb_state *mrb, int x, struct dump_arg *arg) {
   w_byte(mrb, (char)((x >> 0) & 0xff), arg);
   w_byte(mrb, (char)((x >> 8) & 0xff), arg);
 }
 
-static void
-w_long(mrb_state *mrb, long x, struct dump_arg *arg)
-{
+static void w_long(mrb_state *mrb, long x, struct dump_arg *arg) {
   char buf[sizeof(long) + 1];
   int i, len = 0;
 
 #if SIZEOF_LONG > 4
-  if (!(RSHIFT(x, 31) == 0 || RSHIFT(x, 31) == -1))
-  {
+  if (!(RSHIFT(x, 31) == 0 || RSHIFT(x, 31) == -1)) {
     /* big long does not fit in 4 bytes */
     rb_raise(rb_eTypeError, "long too big to dump");
   }
 #endif
 
-  if (x == 0)
-  {
+  if (x == 0) {
     w_byte(mrb, 0, arg);
     return;
   }
-  if (0 < x && x < 123)
-  {
+  if (0 < x && x < 123) {
     w_byte(mrb, (char)(x + 5), arg);
     return;
   }
-  if (-124 < x && x < 0)
-  {
+  if (-124 < x && x < 0) {
     w_byte(mrb, (char)((x - 5) & 0xff), arg);
     return;
   }
-  for (i = 1; i < (int)sizeof(long) + 1; i++)
-  {
+  for (i = 1; i < (int)sizeof(long) + 1; i++) {
     buf[i] = (char)(x & 0xff);
     x = RSHIFT(x, 8);
-    if (x == 0)
-    {
+    if (x == 0) {
       buf[0] = i;
       break;
     }
-    if (x == -1)
-    {
+    if (x == -1) {
       buf[0] = -i;
       break;
     }
   }
   len = i;
-  for (i = 0; i <= len; i++)
-  {
+  for (i = 0; i <= len; i++) {
     w_byte(mrb, buf[i], arg);
   }
 }
 
-static void
-w_float(mrb_state *mrb, double d, struct dump_arg *arg)
-{
+static void w_float(mrb_state *mrb, double d, struct dump_arg *arg) {
   char buf[FLOAT_DIG + (DECIMAL_MANT + 7) / 8 + 10];
 
-  if (isinf(d))
-  {
+  if (isinf(d)) {
     if (d < 0)
       w_cstr(mrb, "-inf", arg);
     else
       w_cstr(mrb, "inf", arg);
-  }
-  else if (isnan(d))
-  {
+  } else if (isnan(d)) {
     w_cstr(mrb, "nan", arg);
-  }
-  else if (d == 0.0)
-  {
+  } else if (d == 0.0) {
     if (1.0 / d < 0)
       w_cstr(mrb, "-0", arg);
     else
       w_cstr(mrb, "0", arg);
-  }
-  else
-  {
+  } else {
     sprintf(buf, "%lf", (double)d);
     {
       int len = strlen(buf);
       int bound_left = 0, bound_right = len - 1;
       for (int i = 0; i < len; i++)
-        if (buf[i] == '.')
-        {
+        if (buf[i] == '.') {
           bound_left = i - 1;
           break;
         }
-      for (int i = bound_right; i > bound_left; i--)
-      {
+      for (int i = bound_right; i > bound_left; i--) {
         if (i < 0)
           break;
-        if (buf[i] == '0' || buf[i] == '.')
-        {
+        if (buf[i] == '0' || buf[i] == '.') {
           buf[i] = '\0';
-        }
-        else
+        } else
           break;
       }
     }
@@ -183,15 +153,13 @@ w_float(mrb_state *mrb, double d, struct dump_arg *arg)
   }
 }
 
-static void
-w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg)
-{
+static void w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg) {
   {
     khint_t i = kh_get(symbol_dump_table, mrb, arg->symbols, id);
-    if (i != kh_end(arg->symbols) && kh_exist(arg->symbols, i))
-    {
+    if (i != kh_end(arg->symbols) &&
+        kh_exist(symbol_dump_table, arg->symbols, i)) {
       w_byte(mrb, TYPE_SYMLINK, arg);
-      w_long(mrb, kh_value(arg->symbols, i), arg);
+      w_long(mrb, kh_value(symbol_dump_table, arg->symbols, i), arg);
       return;
     }
   }
@@ -207,12 +175,10 @@ w_symbol(mrb_state *mrb, mrb_sym id, struct dump_arg *arg)
 
   khint_t cur_size = kh_size(arg->symbols);
   khint_t new_idx = kh_put(symbol_dump_table, mrb, arg->symbols, id);
-  kh_value(arg->symbols, new_idx) = cur_size;
+  kh_value(symbol_dump_table, arg->symbols, new_idx) = cur_size;
 }
 
-static void
-w_unique(mrb_state *mrb, mrb_value s, struct dump_arg *arg)
-{
+static void w_unique(mrb_state *mrb, mrb_value s, struct dump_arg *arg) {
   int ai = mrb_gc_arena_save(mrb);
   // TODO: must_not_be_anonymous("class", s);
   w_symbol(mrb, mrb_intern_str(mrb, s), arg);
@@ -221,18 +187,15 @@ w_unique(mrb_state *mrb, mrb_value s, struct dump_arg *arg)
 
 static void w_object(mrb_state *, mrb_value, struct dump_arg *, int);
 
-static int
-hash_each(mrb_state *mrb, mrb_value key, mrb_value value, void *ud)
-{
+static int hash_each(mrb_state *mrb, mrb_value key, mrb_value value, void *ud) {
   struct dump_call_arg *arg = (struct dump_call_arg *)ud;
   w_object(mrb, key, arg->arg, arg->limit);
   w_object(mrb, value, arg->arg, arg->limit);
   return 0; // continue
 }
 
-static void
-w_class(mrb_state *mrb, char type, mrb_value obj, struct dump_arg *arg, int check)
-{
+static void w_class(mrb_state *mrb, char type, mrb_value obj,
+                    struct dump_arg *arg, int check) {
   mrb_value path;
   struct RClass *klass;
 
@@ -247,16 +210,14 @@ w_class(mrb_state *mrb, char type, mrb_value obj, struct dump_arg *arg, int chec
   mrb_gc_arena_restore(mrb, ai);
 }
 
-static void
-w_uclass(mrb_state *mrb, mrb_value obj, struct RClass *super, struct dump_arg *arg)
-{
+static void w_uclass(mrb_state *mrb, mrb_value obj, struct RClass *super,
+                     struct dump_arg *arg) {
   int ai = mrb_gc_arena_save(mrb);
 
   struct RClass *klass = mrb_obj_class(mrb, obj);
 
   // TODO: w_extended(mrb, klass, arg, TRUE);
-  if (klass != super)
-  {
+  if (klass != super) {
     w_byte(mrb, TYPE_UCLASS, arg);
     w_unique(mrb, mrb_class_path(mrb, klass), arg);
   }
@@ -264,14 +225,11 @@ w_uclass(mrb_state *mrb, mrb_value obj, struct RClass *super, struct dump_arg *a
   mrb_gc_arena_restore(mrb, ai);
 }
 
-static int
-w_obj_each(mrb_state *mrb, mrb_sym id, mrb_value value, void *ud)
-{
+static int w_obj_each(mrb_state *mrb, mrb_sym id, mrb_value value, void *ud) {
   int ai = mrb_gc_arena_save(mrb);
   struct dump_call_arg *arg = (struct dump_call_arg *)ud;
   // if (id == mrb_id_encoding()) return;
-  if (id == mrb_intern_lit(mrb, "E"))
-  {
+  if (id == mrb_intern_lit(mrb, "E")) {
     mrb_gc_arena_restore(mrb, ai);
     return 0; // continue
   }
@@ -281,8 +239,7 @@ w_obj_each(mrb_state *mrb, mrb_sym id, mrb_value value, void *ud)
   return 0; // continue
 }
 
-typedef struct iv_tbl
-{
+typedef struct iv_tbl {
   int size, alloc;
   mrb_value *ptr;
 } iv_tbl;
@@ -291,9 +248,8 @@ typedef struct iv_tbl
 #define IV_KEY_P(k) (((k) & ~((uint32_t)IV_DELETED)) != 0)
 
 /* Iterates over the instance variable table. */
-static void
-iv_foreach(mrb_state *mrb, iv_tbl *t, mrb_iv_foreach_func *func, void *p)
-{
+static void iv_foreach(mrb_state *mrb, iv_tbl *t, mrb_iv_foreach_func *func,
+                       void *p) {
   int i;
 
   if (t == NULL)
@@ -305,12 +261,9 @@ iv_foreach(mrb_state *mrb, iv_tbl *t, mrb_iv_foreach_func *func, void *p)
 
   mrb_sym *keys = (mrb_sym *)&t->ptr[t->alloc];
   mrb_value *vals = t->ptr;
-  for (i = 0; i < t->alloc; i++)
-  {
-    if (IV_KEY_P(keys[i]))
-    {
-      if ((*func)(mrb, keys[i], vals[i], p) != 0)
-      {
+  for (i = 0; i < t->alloc; i++) {
+    if (IV_KEY_P(keys[i])) {
+      if ((*func)(mrb, keys[i], vals[i], p) != 0) {
         return;
       }
     }
@@ -321,31 +274,28 @@ iv_foreach(mrb_state *mrb, iv_tbl *t, mrb_iv_foreach_func *func, void *p)
 #undef IV_DELETED
 #undef IV_KEY_P
 
-static void
-w_ivar(mrb_state *mrb, mrb_value obj, struct iv_tbl *tbl, struct dump_call_arg *arg)
-{
+static void w_ivar(mrb_state *mrb, mrb_value obj, struct iv_tbl *tbl,
+                   struct dump_call_arg *arg) {
   // long num = tbl ? tbl->size : 0;
   // w_encoding(obj, num, arg);
   iv_foreach(mrb, tbl, w_obj_each, arg);
 }
 
-static void
-w_objivar(mrb_state *mrb, mrb_value obj, struct dump_call_arg *arg)
-{
+static void w_objivar(mrb_state *mrb, mrb_value obj,
+                      struct dump_call_arg *arg) {
   mrb_iv_foreach(mrb, obj, w_obj_each, arg);
 }
 
-static void
-w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
-{
+static void w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg,
+                     int limit) {
   struct dump_call_arg c_arg;
   struct iv_tbl *ivtbl = NULL;
 
   int hasiv = 0;
-#define has_ivars(obj, ivtbl) FALSE // (mrb_object_p(obj) && (ivtbl = mrb_obj_ptr(obj)->iv))
+#define has_ivars(obj, ivtbl)                                                  \
+  FALSE // (mrb_object_p(obj) && (ivtbl = mrb_obj_ptr(obj)->iv))
 
-  if (limit == 0)
-  {
+  if (limit == 0) {
     mrb_raise(mrb, E_ARGUMENT_ERROR, "exceed depth limit");
   }
 
@@ -355,60 +305,44 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
 
   {
     khint_t i = kh_get(object_dump_table, mrb, arg->data, obj);
-    if (i != kh_end(arg->data) && kh_exist(arg->data, i))
-    {
+    if (i != kh_end(arg->data) && kh_exist(object_dump_table, arg->data, i)) {
       w_byte(mrb, TYPE_LINK, arg);
-      w_long(mrb, (long)kh_value(arg->data, i), arg);
+      w_long(mrb, (long)kh_value(object_dump_table, arg->data, i), arg);
       return;
     }
   }
 
   int ai = mrb_gc_arena_save(mrb);
 
-  if (mrb_nil_p(obj))
-  {
+  if (mrb_nil_p(obj)) {
     w_byte(mrb, TYPE_NIL, arg);
-  }
-  else if (mrb_true_p(obj))
-  {
+  } else if (mrb_true_p(obj)) {
     w_byte(mrb, TYPE_TRUE, arg);
-  }
-  else if (mrb_false_p(obj))
-  {
+  } else if (mrb_false_p(obj)) {
     w_byte(mrb, TYPE_FALSE, arg);
-  }
-  else if (mrb_fixnum_p(obj))
-  {
+  } else if (mrb_fixnum_p(obj)) {
 #if SIZEOF_LONG <= 4
     w_byte(mrb, TYPE_FIXNUM, arg);
     w_long(mrb, mrb_fixnum(obj), arg);
 #else
-    if (RSHIFT((long)obj, 31) == 0 || RSHIFT((long)obj, 31) == -1)
-    {
+    if (RSHIFT((long)obj, 31) == 0 || RSHIFT((long)obj, 31) == -1) {
       w_byte(mrb, TYPE_FIXNUM, arg);
       w_long(mrb, FIX2LONG(obj), arg);
-    }
-    else
-    {
+    } else {
       w_object(mrb, rb_int2big(FIX2LONG(obj)), arg, limit);
     }
 #endif
-  }
-  else if (mrb_symbol_p(obj))
-  {
+  } else if (mrb_symbol_p(obj)) {
     w_symbol(mrb, mrb_symbol(obj), arg);
-  }
-  else
-  {
+  } else {
     // arg->infection |= (int)FL_TEST(obj, MARSHAL_INFECTION);
 
-    if (mrb_respond_to(mrb, obj, s_mdump))
-    {
-      volatile mrb_value v;
+    if (mrb_respond_to(mrb, obj, s_mdump)) {
+      mrb_value v;
 
       khint_t cur_size = kh_size(arg->data);
       khint_t new_idx = kh_put(object_dump_table, mrb, arg->data, obj);
-      kh_value(arg->data, new_idx) = cur_size;
+      kh_value(object_dump_table, arg->data, new_idx) = cur_size;
 
       v = mrb_funcall_id(mrb, obj, s_mdump, 0);
       check_dump_arg(mrb, arg, s_mdump);
@@ -421,64 +355,56 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
         w_ivar(mrb, obj, ivtbl, &c_arg);
       return;
     }
-    if (mrb_respond_to(mrb, obj, s_dump))
-    {
+    if (mrb_respond_to(mrb, obj, s_dump)) {
       mrb_value v;
       struct iv_tbl *ivtbl2 = 0;
       int hasiv2;
 
       v = mrb_funcall_id(mrb, obj, s_dump, 1, mrb_fixnum_value(limit));
       check_dump_arg(mrb, arg, s_dump);
-      if (!mrb_string_p(v))
-      {
+      if (!mrb_string_p(v)) {
         mrb_raise(mrb, E_TYPE_ERROR, "_dump() must return string");
       }
       hasiv = has_ivars(obj, ivtbl);
       if (hasiv)
         w_byte(mrb, TYPE_IVAR, arg);
-      if ((hasiv2 = has_ivars(v, ivtbl2)) != 0 && !hasiv)
-      {
+      if ((hasiv2 = has_ivars(v, ivtbl2)) != 0 && !hasiv) {
         w_byte(mrb, TYPE_IVAR, arg);
       }
       w_class(mrb, TYPE_USERDEF, obj, arg, FALSE);
       w_bytes(mrb, RSTRING_PTR(v), RSTRING_LEN(v), arg);
-      if (hasiv2)
-      {
+      if (hasiv2) {
         w_ivar(mrb, v, ivtbl2, &c_arg);
-      }
-      else if (hasiv)
-      {
+      } else if (hasiv) {
         w_ivar(mrb, obj, ivtbl, &c_arg);
       }
       khint_t cur_size = kh_size(arg->data);
       khint_t new_idx = kh_put(object_dump_table, mrb, arg->data, obj);
-      kh_value(arg->data, new_idx) = cur_size;
+      kh_value(object_dump_table, arg->data, new_idx) = cur_size;
       return;
     }
 
     khint_t cur_size = kh_size(arg->data);
     khint_t new_idx = kh_put(object_dump_table, mrb, arg->data, obj);
-    kh_value(arg->data, new_idx) = cur_size;
+    kh_value(object_dump_table, arg->data, new_idx) = cur_size;
 
     hasiv = has_ivars(obj, ivtbl);
     if (hasiv)
       w_byte(mrb, TYPE_IVAR, arg);
 
-    if (arg->regexp_class && mrb_obj_class(mrb, obj) == arg->regexp_class)
-    {
+    if (arg->regexp_class && mrb_obj_class(mrb, obj) == arg->regexp_class) {
       w_uclass(mrb, obj, arg->regexp_class, arg);
       w_byte(mrb, TYPE_REGEXP, arg);
       {
         mrb_value src = mrb_funcall_id(mrb, obj, MRB_SYM(source), 0);
-        int opts = mrb_as_int(mrb, mrb_funcall_id(mrb, obj, MRB_SYM(options), 0));
+        int opts =
+            mrb_as_int(mrb, mrb_funcall_id(mrb, obj, MRB_SYM(options), 0));
         mrb_ensure_string_type(mrb, src);
         w_bytes(mrb, RSTRING_PTR(src), RSTRING_LEN(src), arg);
         w_byte(mrb, (char)opts, arg);
       }
-    }
-    else
-      switch (mrb_type(obj))
-      {
+    } else
+      switch (mrb_type(obj)) {
       case MRB_TT_CLASS:
         // singleton check ?!
         // if (FL_)
@@ -487,7 +413,8 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
         // }
         w_byte(mrb, TYPE_CLASS, arg);
         {
-          volatile mrb_value path = mrb_class_path(mrb, (struct RClass *)mrb_obj_ptr(obj));
+          mrb_value path =
+              mrb_class_path(mrb, (struct RClass *)mrb_obj_ptr(obj));
           w_bytes(mrb, RSTRING_PTR(path), RSTRING_LEN(path), arg);
         }
         break;
@@ -495,7 +422,8 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
       case MRB_TT_MODULE:
         w_byte(mrb, TYPE_MODULE, arg);
         {
-          volatile mrb_value path = mrb_class_path(mrb, (struct RClass *)mrb_obj_ptr(obj));
+          mrb_value path =
+              mrb_class_path(mrb, (struct RClass *)mrb_obj_ptr(obj));
           w_bytes(mrb, RSTRING_PTR(path), RSTRING_LEN(path), arg);
         }
         break;
@@ -528,11 +456,9 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
           long i, len = RARRAY_LEN(obj);
 
           w_long(mrb, len, arg);
-          for (i = 0; i < RARRAY_LEN(obj); i++)
-          {
+          for (i = 0; i < RARRAY_LEN(obj); i++) {
             w_object(mrb, RARRAY_PTR(obj)[i], arg, limit);
-            if (len != RARRAY_LEN(obj))
-            {
+            if (len != RARRAY_LEN(obj)) {
               mrb_raise(mrb, E_RUNTIME_ERROR, "array modified during dump");
             }
           }
@@ -541,22 +467,16 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
 
       case MRB_TT_HASH:
         w_uclass(mrb, obj, mrb->hash_class, arg);
-        if (!MRB_RHASH_DEFAULT_P(obj))
-        {
+        if (!MRB_RHASH_DEFAULT_P(obj)) {
           w_byte(mrb, TYPE_HASH, arg);
-        }
-        else if (MRB_RHASH_PROCDEFAULT_P(obj))
-        {
+        } else if (MRB_RHASH_PROCDEFAULT_P(obj)) {
           mrb_raise(mrb, E_TYPE_ERROR, "can't dump hash with default proc");
-        }
-        else
-        {
+        } else {
           w_byte(mrb, TYPE_HASH_DEF, arg);
         }
         w_long(mrb, mrb_hash_size(mrb, obj), arg);
         mrb_hash_foreach(mrb, mrb_hash_ptr(obj), hash_each, &c_arg);
-        if (MRB_RHASH_DEFAULT_P(obj))
-        {
+        if (MRB_RHASH_DEFAULT_P(obj)) {
           mrb_raise(mrb, E_TYPE_ERROR, "can't dump hash with default");
           // w_object(mrb, RHASH_IFNONE(obj), arg, limit);
         }
@@ -571,9 +491,9 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
           mrb_value mem;
           long i;
           w_long(mrb, len, arg);
-          mem = mrb_funcall_id(mrb, obj, MRB_SYM(members), 0); // rb_struct_members(obj);
-          for (i = 0; i < len; i++)
-          {
+          mem = mrb_funcall_id(mrb, obj, MRB_SYM(members),
+                               0); // rb_struct_members(obj);
+          for (i = 0; i < len; i++) {
             w_symbol(mrb, mrb_symbol(RARRAY_PTR(mem)[i]), arg);
             w_object(mrb, RSTRUCT_PTR(obj)[i], arg, limit);
           }
@@ -587,37 +507,33 @@ w_object(mrb_state *mrb, mrb_value obj, struct dump_arg *arg, int limit)
         w_objivar(mrb, obj, &c_arg);
         break;
 
-      case MRB_TT_DATA:
-      {
+      case MRB_TT_DATA: {
         mrb_value v;
 
-        if (!mrb_respond_to(mrb, obj, s_dump_data))
-        {
-          mrb_raisef(mrb, E_TYPE_ERROR, "no _dump_data is defined for class %s", mrb_obj_classname(mrb, obj));
+        if (!mrb_respond_to(mrb, obj, s_dump_data)) {
+          mrb_raisef(mrb, E_TYPE_ERROR, "no _dump_data is defined for class %s",
+                     mrb_obj_classname(mrb, obj));
         }
         v = mrb_funcall_id(mrb, obj, s_dump_data, 0);
         check_dump_arg(mrb, arg, s_dump_data);
         w_class(mrb, TYPE_DATA, obj, arg, TRUE);
         w_object(mrb, v, arg, limit);
-      }
-      break;
+      } break;
 
       default:
-        mrb_raisef(mrb, E_TYPE_ERROR, "can't dump %s", mrb_obj_classname(mrb, obj));
+        mrb_raisef(mrb, E_TYPE_ERROR, "can't dump %s",
+                   mrb_obj_classname(mrb, obj));
         break;
       }
   }
-  if (hasiv)
-  {
+  if (hasiv) {
     w_ivar(mrb, obj, ivtbl, &c_arg);
   }
 
   mrb_gc_arena_restore(mrb, ai);
 }
 
-static void 
-clear_dump_arg(mrb_state *mrb, struct dump_arg *arg)
-{
+static void clear_dump_arg(mrb_state *mrb, struct dump_arg *arg) {
   if (arg->symbols)
     kh_destroy(symbol_dump_table, mrb, arg->symbols);
   if (arg->data)
@@ -628,26 +544,29 @@ clear_dump_arg(mrb_state *mrb, struct dump_arg *arg)
 
 #include <mruby/data.h>
 
-static void
-free_dump_arg(mrb_state *mrb, void *ud)
-{
-  clear_dump_arg(mrb, (struct dump_arg *) ud);
+static void free_dump_arg(mrb_state *mrb, void *ud) {
+  clear_dump_arg(mrb, (struct dump_arg *)ud);
   mrb_free(mrb, ud);
 }
 
-static mrb_data_type _mrb_dump_arg = { "Marshal::DumpARG", free_dump_arg };
+static mrb_data_type _mrb_dump_arg = {"Marshal::DumpARG", free_dump_arg};
 
-void mrb_marshal_dump(mrb_state *mrb, mrb_value obj, mrb_marshal_writer_t writer, mrb_value target, int limit)
-{
+void mrb_marshal_dump(mrb_state *mrb, mrb_value obj,
+                      mrb_marshal_writer_t writer, mrb_value target,
+                      int limit) {
   struct dump_arg *arg;
   struct RData *wrapper;
-  Data_Make_Struct(mrb, mrb->object_class, struct dump_arg, &_mrb_dump_arg, arg, wrapper);
+  Data_Make_Struct(mrb, mrb->object_class, struct dump_arg, &_mrb_dump_arg, arg,
+                   wrapper);
   arg->dest = target;
   arg->position = 0;
   arg->writer = writer;
   arg->symbols = kh_init(symbol_dump_table, mrb);
   arg->data = kh_init(object_dump_table, mrb);
-  arg->regexp_class = mrb_const_defined(mrb, mrb_obj_value(mrb->object_class), mrb_intern_cstr(mrb, REGEXP_CLASS)) ? mrb_class_get(mrb, REGEXP_CLASS) : NULL;
+  arg->regexp_class = mrb_const_defined(mrb, mrb_obj_value(mrb->object_class),
+                                        mrb_intern_cstr(mrb, REGEXP_CLASS))
+                          ? mrb_class_get(mrb, REGEXP_CLASS)
+                          : NULL;
 
   w_byte(mrb, MARSHAL_MAJOR, arg);
   w_byte(mrb, MARSHAL_MINOR, arg);
