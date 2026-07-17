@@ -50,8 +50,13 @@ static mrb_sym r_symbol(mrb_state *, struct load_arg *);
 
 static mrb_int r_prepare(mrb_state *mrb, struct load_arg *arg) {
   mrb_int idx = kh_size(arg->data);
-  kh_value(object_load_table, arg->data,
-           kh_put(object_load_table, mrb, arg->data, idx)) = mrb_undef_value();
+  /* kh_put() may grow the table and realloc its bucket arrays. Evaluating the
+   * kh_value() lvalue (which dereferences the bucket base pointer) in the same
+   * statement as the kh_put() call is unsequenced, so the store can be made
+   * through a stale/freed bucket pointer -> intermittent heap corruption.
+   * Sequence the two with an explicit local, as r_entry0() already does. */
+  khint_t k = kh_put(object_load_table, mrb, arg->data, idx);
+  kh_value(object_load_table, arg->data, k) = mrb_undef_value();
   return idx;
 }
 
